@@ -15,7 +15,7 @@ pushing: public history, logs and uploaded screenshots are public data.
 
 ## Before you start
 
-- **Bugs** — open a [bug report](https://github.com/spencercnorton/xnote/issues/new/choose).
+- **Bugs** — open a [bug report](https://github.com/spencernorton/xnote/issues/new/choose).
   A report with reproduction steps, versions and the terminal output is
   usually fixed faster than a pull request that arrives without one.
 - **Features** — open a feature request first. XNote has firm opinions about
@@ -23,7 +23,7 @@ pushing: public history, logs and uploaded screenshots are public data.
   anywhere by the application itself); an idea that cuts across them needs a
   conversation before code.
 - **Security** — never in a public issue. Use
-  [private vulnerability reporting](https://github.com/spencercnorton/xnote/security/advisories/new);
+  [private vulnerability reporting](https://github.com/spencernorton/xnote/security/advisories/new);
   see [SECURITY.md](SECURITY.md).
 
 ## Working on the code
@@ -116,7 +116,7 @@ So nobody wastes an evening on it, XNote will not accept:
   the opt-in backup helper ever talks to a remote, and only with ciphertext
 - a sync service, accounts, or sharing notes between people
 - placing windows itself — Wayland forbids it, and that is the
-  [XNote Placement](https://github.com/spencercnorton/xnote-placement) extension's job
+  [XNote Placement](https://github.com/spencernorton/xnote-placement) extension's job
 - renaming the `xpad_` files and symbols
 
 ## Pull request checklist
