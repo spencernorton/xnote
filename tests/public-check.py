@@ -8,7 +8,7 @@ import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
 VERSION = "3.2.3"
-GITHUB = "https://github.com/spencercnorton/xnote"
+GITHUB = "https://github.com/spencernorton/xnote"
 
 
 def read(path: str) -> str:

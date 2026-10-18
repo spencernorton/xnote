@@ -3,7 +3,7 @@
 ## Reporting a vulnerability
 
 Please report vulnerabilities privately through GitHub:
-**[Report a vulnerability](https://github.com/spencercnorton/xnote/security/advisories/new)**.
+**[Report a vulnerability](https://github.com/spencernorton/xnote/security/advisories/new)**.
 Do not open a public issue, and do not attach real notes, keyfiles, recovery
 codes or backup snapshots — the affected version, a description and a minimal
 reproduction with disposable test data are enough.
@@ -15,7 +15,7 @@ is published once the release is out, and credits you unless you ask
 otherwise.
 
 Ordinary bugs with no security impact belong in the
-[public issue tracker](https://github.com/spencercnorton/xnote/issues/new/choose).
+[public issue tracker](https://github.com/spencernorton/xnote/issues/new/choose).
 
 ## Supported versions
 
@@ -26,7 +26,7 @@ Only the latest tagged release is supported. XNote has no LTS line.
 In scope: this repository's code and the artefacts it ships — the `xnote`
 application, the `xnote-cloud-backup` helper and the Debian package.
 Out of scope: the XNote Placement extension (report to
-[its own advisory form](https://github.com/spencercnorton/xnote-placement/security/advisories/new)),
+[its own advisory form](https://github.com/spencernorton/xnote-placement/security/advisories/new)),
 the storage providers a backup remote points at, and `rclone` itself.
 
 ## What XNote does with your notes

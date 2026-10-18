@@ -11,8 +11,8 @@
 
 <p align="center">
   <a href="https://norvitech.com"><img alt="NorviTech Suite" src="https://img.shields.io/badge/NorviTech-Suite-FD8024.svg"></a>
-  <a href="https://github.com/spencercnorton/xnote/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/spencercnorton/xnote/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="https://github.com/spencercnorton/xnote/tags"><img alt="Latest release" src="https://img.shields.io/github/v/tag/spencercnorton/xnote?label=release&sort=semver"></a>
+  <a href="https://github.com/spencernorton/xnote/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/spencernorton/xnote/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/spencernorton/xnote/tags"><img alt="Latest release" src="https://img.shields.io/github/v/tag/spencercnorton/xnote?label=release&sort=semver"></a>
   <a href="https://apt.globalentry.systems"><img alt="APT repository" src="https://img.shields.io/badge/apt-Ubuntu%2026.04-e95420.svg?logo=ubuntu&logoColor=white"></a>
   <a href="COPYING"><img alt="Licence" src="https://img.shields.io/badge/licence-GPL--3.0--or--later-blue.svg"></a>
   <a href="https://buy.stripe.com/8x26oH2U44f65TRe574wM04"><img alt="Donate" src="https://img.shields.io/badge/donate-Stripe-635bff.svg?logo=stripe&logoColor=white"></a>
@@ -87,7 +87,7 @@ systemctl --user enable --now xnote-cloud-backup.timer
 
 **Back where you left it.** Wayland forbids an application from placing its
 own windows, so the companion
-[XNote Placement](https://github.com/spencercnorton/xnote-placement) GNOME
+[XNote Placement](https://github.com/spencernorton/xnote-placement) GNOME
 Shell extension does it from the compositor side: every note returns to the
 position, monitor and workspace it had, on every login. `apt install xnote`
 brings it along as a recommendation.
@@ -164,7 +164,7 @@ downloads a replacement toolchain or module dependencies.
 Then build and install:
 
 ```sh
-git clone https://github.com/spencercnorton/xnote.git
+git clone https://github.com/spencernorton/xnote.git
 cd xnote
 NOCONFIGURE=1 ./autogen.sh
 ./configure --prefix=/usr
@@ -205,7 +205,7 @@ The [user guide](docs/user-guide.md) covers the things the screenshots do not:
 and the release model; [CHANGELOG.md](CHANGELOG.md) lists every release. The
 man pages `xnote(1)` and `xnote-cloud-backup(1)` install with the package
 (their roff source is in `doc/`). Placement on Wayland is the
-[XNote Placement](https://github.com/spencercnorton/xnote-placement) extension's job;
+[XNote Placement](https://github.com/spencernorton/xnote-placement) extension's job;
 its README explains how.
 
 ## Where your data lives
@@ -227,8 +227,8 @@ somewhere separate from the computer.
 
 ## Contributing and support
 
-- Bugs and feature requests: [open an issue](https://github.com/spencercnorton/xnote/issues/new/choose). Questions: [Discussions](https://github.com/spencercnorton/xnote/discussions).
-- Security reports: [private vulnerability reporting](https://github.com/spencercnorton/xnote/security/advisories/new) — see [SECURITY.md](SECURITY.md). There is no e-mail address; that is deliberate.
+- Bugs and feature requests: [open an issue](https://github.com/spencernorton/xnote/issues/new/choose). Questions: [Discussions](https://github.com/spencernorton/xnote/discussions).
+- Security reports: [private vulnerability reporting](https://github.com/spencernorton/xnote/security/advisories/new) — see [SECURITY.md](SECURITY.md). There is no e-mail address; that is deliberate.
 - Pull requests are welcome; read [CONTRIBUTING.md](CONTRIBUTING.md) first — changes are reviewed and merged on GitHub, then shipped in tagged releases.
 - If XNote saves you time, you can [support its development](https://buy.stripe.com/8x26oH2U44f65TRe574wM04).
 
@@ -254,7 +254,7 @@ licence. The public history keeps every upstream commit up to the
 [baseline commit](https://git.launchpad.net/xpad/commit/?id=637c7b51f1b09a28553a926f594f626d363c526a)
 — which is why the contributor list shows Xpad's authors — and everything
 after it is XNote; see the
-[comparison](https://github.com/spencercnorton/xnote/compare/637c7b51f1b09a28553a926f594f626d363c526a...main).
+[comparison](https://github.com/spencernorton/xnote/compare/637c7b51f1b09a28553a926f594f626d363c526a...main).
 [NOTICE](NOTICE) and [AUTHORS](AUTHORS) carry attribution; the BinReloc code
 in `src/prefix.c` and `src/prefix.h` is LGPL-3.0-or-later
 ([src/COPYING.LESSER](src/COPYING.LESSER)).
@@ -266,14 +266,14 @@ in `src/prefix.c` and `src/prefix.h` is LGPL-3.0-or-later
 </p>
 
 <p align="center">
-  <a href="https://github.com/spencercnorton/helios">Helios</a> ·
-  <a href="https://github.com/spencercnorton/bitagent">BitAgent</a> ·
-  <a href="https://github.com/spencercnorton/xnote">XNote</a> ·
-  <a href="https://github.com/spencercnorton/xnote-placement">XNote Placement</a> ·
-  <a href="https://github.com/spencercnorton/snipsnap">SnipSnap</a> ·
-  <a href="https://github.com/spencercnorton/conductor">Conductor</a> ·
-  <a href="https://github.com/spencercnorton/norvi-os">NorviOS</a> ·
-  <a href="https://github.com/spencercnorton/indigo">Indigo</a> ·
-  <a href="https://github.com/spencercnorton/roadtrack">Road Track</a> ·
+  <a href="https://github.com/spencernorton/helios">Helios</a> ·
+  <a href="https://github.com/spencernorton/bitagent">BitAgent</a> ·
+  <a href="https://github.com/spencernorton/xnote">XNote</a> ·
+  <a href="https://github.com/spencernorton/xnote-placement">XNote Placement</a> ·
+  <a href="https://github.com/spencernorton/snipsnap">SnipSnap</a> ·
+  <a href="https://github.com/spencernorton/conductor">Conductor</a> ·
+  <a href="https://github.com/spencernorton/norvi-os">NorviOS</a> ·
+  <a href="https://github.com/spencernorton/indigo">Indigo</a> ·
+  <a href="https://github.com/spencernorton/roadtrack">Road Track</a> ·
   <a href="https://norvitech.com">norvitech.com</a>
 </p>

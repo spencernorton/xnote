@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Security vulnerability
-    url: https://github.com/spencercnorton/xnote/security/advisories/new
+    url: https://github.com/spencernorton/xnote/security/advisories/new
     about: Report privately through GitHub's vulnerability reporting. Please do not open a public issue.
   - name: Question or idea
-    url: https://github.com/spencercnorton/xnote/discussions
+    url: https://github.com/spencernorton/xnote/discussions
     about: Ask how something works, or float an idea before writing it up as a feature request.
