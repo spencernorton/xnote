@@ -163,7 +163,9 @@ change_font_check (GtkCheckButton *button, XpadPreferences *pref)
 	g_signal_handler_block (pref->priv->settings, pref->priv->notify_font_handler);
 
 	if (gtk_check_button_get_active (button)) {
-		g_object_set (pref->priv->settings, "fontname", gtk_font_chooser_get_font (GTK_FONT_CHOOSER (pref->priv->fontbutton)), NULL);
+		gchar *font = gtk_font_chooser_get_font (GTK_FONT_CHOOSER (pref->priv->fontbutton));
+		g_object_set (pref->priv->settings, "fontname", font, NULL);
+		g_free (font);
 	} else {
 		g_object_set (pref->priv->settings, "fontname", NULL, NULL);
 	}
@@ -175,9 +177,11 @@ change_font_check (GtkCheckButton *button, XpadPreferences *pref)
 static void
 change_font_face (GtkFontChooser *button, XpadPreferences *pref)
 {
+	gchar *font = gtk_font_chooser_get_font (button);
 	g_signal_handler_block (pref->priv->settings, pref->priv->notify_font_handler);
-	g_object_set (pref->priv->settings, "fontname", gtk_font_chooser_get_font (button), NULL);
+	g_object_set (pref->priv->settings, "fontname", font, NULL);
 	g_signal_handler_unblock (pref->priv->settings, pref->priv->notify_font_handler);
+	g_free (font);
 }
 
 static void
@@ -245,7 +249,7 @@ change_autostart_xpad (GtkSwitch *sw, gboolean state, XpadPreferences *pref)
 static void
 notify_fontname (XpadPreferences *pref)
 {
-	const gchar *fontname;
+	gchar *fontname = NULL;
 	g_object_get (pref->priv->settings, "fontname", &fontname, NULL);
 
 	g_signal_handler_block (pref->priv->fontbutton, pref->priv->font_handler);
@@ -257,6 +261,7 @@ notify_fontname (XpadPreferences *pref)
 		gtk_check_button_set_active (GTK_CHECK_BUTTON (pref->priv->fontcheck), TRUE);
 		gtk_widget_set_sensitive (pref->priv->fontbutton, TRUE);
 		gtk_font_chooser_set_font (GTK_FONT_CHOOSER (pref->priv->fontbutton), fontname);
+		g_free (fontname);
 	}
 	else
 	{
@@ -272,7 +277,7 @@ notify_fontname (XpadPreferences *pref)
 static void
 notify_text_color (XpadPreferences *pref)
 {
-	const GdkRGBA *text_color;
+	GdkRGBA *text_color = NULL;
 	g_object_get (pref->priv->settings, "text-color", &text_color, NULL);
 
 	g_signal_handler_block (pref->priv->textbutton, pref->priv->text_handler);
@@ -284,6 +289,7 @@ notify_text_color (XpadPreferences *pref)
 		gtk_check_button_set_active (GTK_CHECK_BUTTON (pref->priv->colorcheck), TRUE);
 		gtk_widget_set_sensitive (pref->priv->colorbox, TRUE);
 		gtk_color_chooser_set_rgba (GTK_COLOR_CHOOSER (pref->priv->textbutton), text_color);
+		gdk_rgba_free (text_color);
 	}
 	else
 	{
@@ -299,7 +305,7 @@ notify_text_color (XpadPreferences *pref)
 static void
 notify_back_color (XpadPreferences *pref)
 {
-	const GdkRGBA *back_color;
+	GdkRGBA *back_color = NULL;
 	g_object_get (pref->priv->settings, "back-color", &back_color, NULL);
 
 	g_signal_handler_block (pref->priv->backbutton, pref->priv->back_handler);
@@ -311,6 +317,7 @@ notify_back_color (XpadPreferences *pref)
 		gtk_check_button_set_active (GTK_CHECK_BUTTON (pref->priv->colorcheck), TRUE);
 		gtk_widget_set_sensitive (pref->priv->colorbox, TRUE);
 		gtk_color_chooser_set_rgba (GTK_COLOR_CHOOSER (pref->priv->backbutton), back_color);
+		gdk_rgba_free (back_color);
 	}
 	else
 	{
@@ -638,12 +645,13 @@ xpad_preferences_constructed (GObject *object)
 
 	/* Font */
 	{
-		const gchar *fontname;
+		gchar *fontname = NULL;
 		g_object_get (settings, "fontname", &fontname, NULL);
 
 		if (fontname) {
 			gtk_check_button_set_active (GTK_CHECK_BUTTON (pref->priv->fontcheck), TRUE);
 			gtk_font_chooser_set_font (GTK_FONT_CHOOSER (pref->priv->fontbutton), fontname);
+			g_free (fontname);
 		} else {
 			gtk_check_button_set_active (GTK_CHECK_BUTTON (pref->priv->antifontcheck), TRUE);
 			gtk_widget_set_sensitive (pref->priv->fontbutton, FALSE);
@@ -664,7 +672,7 @@ xpad_preferences_constructed (GObject *object)
 
 	/* Color */
 	{
-		const GdkRGBA *text_color, *back_color;
+		GdkRGBA *text_color = NULL, *back_color = NULL;
 		GtkStyleContext *style;
 		GdkRGBA theme_text_color = {0, 0, 0, 0}, theme_background_color = {0, 0, 0, 0};
 
@@ -674,14 +682,17 @@ xpad_preferences_constructed (GObject *object)
 		gtk_style_context_get_color (style, &theme_text_color);
 		get_background_color (style, GTK_STATE_FLAG_NORMAL, &theme_background_color);
 
-		if (text_color)
+		if (text_color) {
 			gtk_color_chooser_set_rgba (GTK_COLOR_CHOOSER (pref->priv->textbutton), text_color);
-		else
+			gdk_rgba_free (text_color);
+		} else {
 			gtk_color_chooser_set_rgba (GTK_COLOR_CHOOSER (pref->priv->textbutton), &theme_text_color);
+		}
 
 		if (back_color) {
 			gtk_check_button_set_active (GTK_CHECK_BUTTON (pref->priv->colorcheck), TRUE);
 			gtk_color_chooser_set_rgba (GTK_COLOR_CHOOSER (pref->priv->backbutton), back_color);
+			gdk_rgba_free (back_color);
 		} else {
 			gtk_check_button_set_active (GTK_CHECK_BUTTON (pref->priv->anticolorcheck), TRUE);
 			gtk_widget_set_sensitive (pref->priv->colorbox, FALSE);
@@ -749,8 +760,10 @@ xpad_preferences_finalize (GObject *object)
 	/* Every settings notification is connected with pref as its callback data,
 	   so one matched disconnect covers the handlers that do not need IDs for
 	   temporary blocking as well as those that do. */
-	if (pref->priv->settings)
+	if (pref->priv->settings) {
 		g_signal_handlers_disconnect_matched (pref->priv->settings, G_SIGNAL_MATCH_DATA, 0, 0, NULL, NULL, pref);
+		g_clear_object (&pref->priv->settings);
+	}
 
 	G_OBJECT_CLASS (xpad_preferences_parent_class)->finalize (object);
 }

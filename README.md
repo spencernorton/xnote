@@ -12,8 +12,8 @@
 <p align="center">
   <a href="https://norvitech.com"><img alt="NorviTech Suite" src="https://img.shields.io/badge/NorviTech-Suite-FD8024.svg"></a>
   <a href="https://github.com/spencernorton/xnote/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/spencernorton/xnote/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="https://github.com/spencernorton/xnote/tags"><img alt="Latest release" src="https://img.shields.io/github/v/tag/spencercnorton/xnote?label=release&sort=semver"></a>
-  <a href="https://apt.globalentry.systems"><img alt="APT repository" src="https://img.shields.io/badge/apt-Ubuntu%2026.04-e95420.svg?logo=ubuntu&logoColor=white"></a>
+  <a href="https://github.com/spencernorton/xnote/tags"><img alt="Latest release" src="https://img.shields.io/github/v/tag/spencernorton/xnote?label=release&sort=semver"></a>
+  <a href="https://norvitech.com/#install"><img alt="APT repository" src="https://img.shields.io/badge/apt-Ubuntu%2026.04-e95420.svg?logo=ubuntu&logoColor=white"></a>
   <a href="COPYING"><img alt="Licence" src="https://img.shields.io/badge/licence-GPL--3.0--or--later-blue.svg"></a>
   <a href="https://buy.stripe.com/8x26oH2U44f65TRe574wM04"><img alt="Donate" src="https://img.shields.io/badge/donate-Stripe-635bff.svg?logo=stripe&logoColor=white"></a>
 </p>
@@ -106,7 +106,7 @@ theme, and an optional StatusNotifierItem tray menu.
 Add the repository once and XNote updates with everything else:
 
 ```bash
-curl -fsSL https://apt.globalentry.systems/setup.sh | sudo sh
+curl -fsSL https://apt.norvitech.com/setup.sh | sudo sh
 sudo apt install xnote
 ```
 

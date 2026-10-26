@@ -20,10 +20,10 @@
       <li>Native Wayland with libadwaita styling; notes from Xpad are migrated on first start</li>
     </ul>
   </description>
-  <url type="homepage">https://github.com/spencercnorton/xnote</url>
-  <url type="bugtracker">https://github.com/spencercnorton/xnote/issues</url>
-  <url type="vcs-browser">https://github.com/spencercnorton/xnote</url>
-  <url type="help">https://github.com/spencercnorton/xnote/blob/main/docs/user-guide.md</url>
+  <url type="homepage">https://github.com/spencernorton/xnote</url>
+  <url type="bugtracker">https://github.com/spencernorton/xnote/issues</url>
+  <url type="vcs-browser">https://github.com/spencernorton/xnote</url>
+  <url type="help">https://github.com/spencernorton/xnote/blob/main/docs/user-guide.md</url>
   <url type="donation">https://buy.stripe.com/8x26oH2U44f65TRe574wM04</url>
   <translation type="gettext">xnote</translation>
   <content_rating type="oars-1.1"/>
@@ -44,26 +44,31 @@
   <screenshots>
     <screenshot type="default">
       <caption>Five sticky notes of different colours and sizes on a desktop</caption>
-      <image type="source" width="1280" height="800">https://raw.githubusercontent.com/spencercnorton/xnote/main/screenshots/xnote-desktop.png</image>
+      <image type="source" width="1280" height="800">https://raw.githubusercontent.com/spencernorton/xnote/main/screenshots/xnote-desktop.png</image>
     </screenshot>
     <screenshot>
       <caption>The floating toolbar that appears when a note is hovered</caption>
-      <image type="source" width="1280" height="800">https://raw.githubusercontent.com/spencercnorton/xnote/main/screenshots/xnote-toolbar.png</image>
+      <image type="source" width="1280" height="800">https://raw.githubusercontent.com/spencernorton/xnote/main/screenshots/xnote-toolbar.png</image>
     </screenshot>
     <screenshot>
       <caption>The sticky-note colour palette</caption>
-      <image type="source" width="640" height="666">https://raw.githubusercontent.com/spencercnorton/xnote/main/screenshots/xnote-color-picker.png</image>
+      <image type="source" width="640" height="666">https://raw.githubusercontent.com/spencernorton/xnote/main/screenshots/xnote-color-picker.png</image>
     </screenshot>
     <screenshot>
       <caption>Preferences, View page: toolbar, scrollbar and window decorations</caption>
-      <image type="source" width="640" height="666">https://raw.githubusercontent.com/spencercnorton/xnote/main/screenshots/xnote-preferences-view.png</image>
+      <image type="source" width="640" height="666">https://raw.githubusercontent.com/spencernorton/xnote/main/screenshots/xnote-preferences-view.png</image>
     </screenshot>
     <screenshot>
       <caption>Preferences, Layout page: font, colours and the default note size</caption>
-      <image type="source" width="640" height="666">https://raw.githubusercontent.com/spencercnorton/xnote/main/screenshots/xnote-preferences-layout.png</image>
+      <image type="source" width="640" height="666">https://raw.githubusercontent.com/spencernorton/xnote/main/screenshots/xnote-preferences-layout.png</image>
     </screenshot>
   </screenshots>
   <releases>
+    <release version="3.2.4" date="2026-10-26">
+      <description>
+        <p>End-to-end encrypted backup verification for Dropbox, Google Drive and rclone crypt remotes, unchanged-note sync deduplication, systemd user unit activation on autosave, and GTK 4 / GObject memory and signal fixes.</p>
+      </description>
+    </release>
     <release version="3.2.3" date="2026-09-29">
       <description>
         <p>Notes open in the order of their file names, so the XNote Placement extension keeps notes that share a first line each in its own place.</p>

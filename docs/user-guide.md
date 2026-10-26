@@ -474,7 +474,7 @@ older XNote reads them unchanged, but nothing writes to them any more.
 
 If you use GNOME and want each note back on the workspace and monitor you
 left it on, the companion GNOME Shell extension
-[XNote Placement](https://github.com/spencercnorton/xnote-placement) does
+[XNote Placement](https://github.com/spencernorton/xnote-placement) does
 that from the compositor side, where it is allowed. XNote opens its notes in
 the order of their `info-` file names, the order in which the extension
 tells notes that share a first line apart.

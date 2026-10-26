@@ -277,8 +277,7 @@ xpad_search_bar_previous_match_cb(XpadSearchBar *searchbar)
 
 	GtkTextIter match_start;
 	GtkTextIter match_end;
-	gboolean *has_wrapped_around = FALSE;
-	gboolean found = gtk_source_search_context_backward (searchbar->priv->search_context, &start, &match_start, &match_end, has_wrapped_around);
+	gboolean found = gtk_source_search_context_backward (searchbar->priv->search_context, &start, &match_start, &match_end, NULL);
 
 	if (found)
 	{
@@ -314,8 +313,7 @@ xpad_search_bar_next_match_cb(XpadSearchBar *searchbar)
 
 	GtkTextIter match_start;
 	GtkTextIter match_end;
-	gboolean *has_wrapped_around = FALSE;
-	gboolean found = gtk_source_search_context_forward (searchbar->priv->search_context, &start, &match_start, &match_end, has_wrapped_around);
+	gboolean found = gtk_source_search_context_forward (searchbar->priv->search_context, &start, &match_start, &match_end, NULL);
 
 	if (found)
 	{

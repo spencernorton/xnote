@@ -44,7 +44,7 @@ cat > "$changelog" <<CHANGELOG
 xnote ($version) resolute; urgency=medium
 
   * Release $version. The release notes:
-    https://github.com/spencercnorton/xnote/blob/main/CHANGELOG.md
+    https://github.com/spencernorton/xnote/blob/main/CHANGELOG.md
 
  -- Norvi <apt@globalentry.systems>  $(date -u -d "@$stamp" '+%a, %d %b %Y %H:%M:%S +0000')
 CHANGELOG

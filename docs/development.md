@@ -225,7 +225,7 @@ checksummed 1.26.8 instead), fails on any lintian error or warning
 the accepted ones), runs `scripts/check-deb.sh`, then installs the `.deb`
 and runs the smoke test against the installed binary. A release tag
 publishes that `.deb` on the GitHub Release. The Norvi APT archive at
-<https://apt.globalentry.systems> (suite `resolute`, `amd64`) publishes on
+<https://apt.norvitech.com> (suite `resolute`, `amd64`) publishes on
 its own schedule; its front page documents how to add it. The package is
 built on 26.04 and links against 26.04's libraries, so it is filed under
 that release's suite only.

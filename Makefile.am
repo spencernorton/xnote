@@ -45,7 +45,7 @@ EXTRA_DIST = \
 if HAVE_GO
 cloud-helper/xnote-cloud-backup: $(srcdir)/cloud-helper/go.mod $(srcdir)/cloud-helper/vendor/modules.txt $(addprefix $(srcdir)/,$(CLOUD_HELPER_GO_SOURCES))
 	$(MKDIR_P) cloud-helper
-	cd $(srcdir)/cloud-helper && GOTOOLCHAIN=local GOPROXY=off $(GO) build -mod=vendor -o $(abs_builddir)/$@ .
+	cd $(srcdir)/cloud-helper && GOTOOLCHAIN=local GOPROXY=off $(GO) build -mod=vendor -trimpath -o $(abs_builddir)/$@ .
 
 all-local: cloud-helper/xnote-cloud-backup
 

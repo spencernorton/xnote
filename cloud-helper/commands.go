@@ -101,8 +101,20 @@ func cmdInit() error {
 	return nil
 }
 
-// cmdBackup implements the `backup` (and `sync`) verb.
+// cmdBackup implements the `backup` verb (always creates a new snapshot generation).
 func cmdBackup() error {
+	return runBackup(false)
+}
+
+// cmdSync implements the `sync` verb (used by the systemd timer and XNote's
+// debounced auto-save trigger: skips minting a duplicate snapshot generation
+// when the deterministic note archive matches the validated local head, while
+// still pushing any unsynced head snapshot to the configured cloud remote).
+func cmdSync() error {
+	return runBackup(true)
+}
+
+func runBackup(skipIfUnchanged bool) error {
 	if !isInitialised() {
 		return fmt.Errorf("not initialised; run 'xnote-cloud-backup init' first")
 	}
@@ -145,7 +157,8 @@ func cmdBackup() error {
 	// Seed generation from max(head.Generation, max across existing snapshot headers) + 1.
 	// This prevents a deleted head.json from resetting the counter and causing SnapshotID collisions.
 	nextGen := head.Generation + 1
-	if snapIDs, _ := ListSnapshots(); len(snapIDs) > 0 {
+	snapIDs, _ := ListSnapshots()
+	if len(snapIDs) > 0 {
 		for _, sid := range snapIDs {
 			sf, ferr := os.Open(SnapshotPath(sid))
 			if ferr != nil {
@@ -159,6 +172,39 @@ func cmdBackup() error {
 			if sh.Generation+1 > nextGen {
 				nextGen = sh.Generation + 1
 			}
+		}
+	}
+
+	// --- Build tar in memory (notes are text files, total << RAM) ---
+	// The whole tar is held in memory; stream it through io.Pipe if notes grow huge.
+	var tarBuf bytes.Buffer
+	nFiles, noteFiles, err := WriteTarWithNoteCount(&tarBuf, configD)
+	if err != nil {
+		return fmt.Errorf("tar: %w", err)
+	}
+	if noteFiles == 0 {
+		return fmt.Errorf("refusing backup: archive contains no content-* note files")
+	}
+
+	if skipIfUnchanged && len(snapIDs) > 0 {
+		latestID := snapIDs[len(snapIDs)-1]
+		if snapshotMatchesTar(latestID, head, masterKey, tarBuf.Bytes()) {
+			if cfg.CloudRemote == "" {
+				log("notes unchanged since %s (gen=%d); skipping duplicate snapshot", latestID, head.Generation)
+				return nil
+			}
+			host, err := remoteHost(cfg, hostname())
+			if err != nil {
+				return err
+			}
+			if status, err := loadRemoteStatus(); err == nil &&
+				status.LastSuccessSnapshotID == latestID &&
+				status.Device == host &&
+				status.LastError == "" {
+				log("notes unchanged since %s (gen=%d); local and cloud backup up to date", latestID, head.Generation)
+				return nil
+			}
+			return pushSnapshotToRemote(cfg, latestID, host)
 		}
 	}
 
@@ -180,17 +226,6 @@ func cmdBackup() error {
 	snapID := SnapshotID(hdr.Generation)
 	snapPath := SnapshotPath(snapID)
 	tmpPath := snapPath + ".tmp"
-
-	// --- Build tar in memory (notes are text files, total << RAM) ---
-	// The whole tar is held in memory; stream it through io.Pipe if notes grow huge.
-	var tarBuf bytes.Buffer
-	nFiles, noteFiles, err := WriteTarWithNoteCount(&tarBuf, configD)
-	if err != nil {
-		return fmt.Errorf("tar: %w", err)
-	}
-	if noteFiles == 0 {
-		return fmt.Errorf("refusing backup: archive contains no content-* note files")
-	}
 
 	// Generate base_nonce before constructing the header, so the full header
 	// (including base_nonce) can be used as AAD for chunk 0. This avoids a
@@ -272,24 +307,61 @@ func cmdBackup() error {
 		if err != nil {
 			return err
 		}
-		kitDir, err := buildRecoveryKit(snapID, host)
-		if err != nil {
-			_ = recordRemoteAttempt(snapID, host, err)
-			return fmt.Errorf("local snapshot is safe, but recovery-kit staging failed: %w", err)
+		if err := pushSnapshotToRemote(cfg, snapID, host); err != nil {
+			return err
 		}
-		defer os.RemoveAll(kitDir)
-		pushErr := pushRecoveryKit(cfg, kitDir, host)
-		statusErr := recordRemoteAttempt(snapID, host, pushErr)
-		if pushErr != nil {
-			return fmt.Errorf("local snapshot is safe, but cloud push failed: %w", pushErr)
-		}
-		if statusErr != nil {
-			return fmt.Errorf("cloud push succeeded, but recording success status failed: %w", statusErr)
-		}
-		log("cloud recovery kit OK -> %s/%s/kits/%s", cfg.CloudRemote, host, snapID)
 	}
 
 	return nil
+}
+
+func pushSnapshotToRemote(cfg Config, snapID, host string) error {
+	kitDir, err := buildRecoveryKit(snapID, host)
+	if err != nil {
+		_ = recordRemoteAttempt(snapID, host, err)
+		return fmt.Errorf("local snapshot is safe, but recovery-kit staging failed: %w", err)
+	}
+	defer os.RemoveAll(kitDir)
+	pushErr := pushRecoveryKit(cfg, kitDir, host)
+	statusErr := recordRemoteAttempt(snapID, host, pushErr)
+	if pushErr != nil {
+		return fmt.Errorf("local snapshot is safe, but cloud push failed: %w", pushErr)
+	}
+	if statusErr != nil {
+		return fmt.Errorf("cloud push succeeded, but recording success status failed: %w", statusErr)
+	}
+	log("cloud recovery kit OK -> %s/%s/kits/%s", cfg.CloudRemote, host, snapID)
+	return nil
+}
+
+func snapshotMatchesTar(snapID string, head *HeadState, masterKey, tarBytes []byte) bool {
+	if head == nil || head.Generation == 0 || len(head.HeadHash) != 32 {
+		return false
+	}
+	snapPath := SnapshotPath(snapID)
+	hash, err := hashFile(snapPath)
+	if err != nil || !bytes.Equal(head.HeadHash, hash[:]) {
+		return false
+	}
+	f, err := os.Open(snapPath)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	hdr, err := ReadHeader(f)
+	if err != nil || hdr.Generation != head.Generation {
+		return false
+	}
+	dek, err := unwrapDEK(masterKey, hdr.WrappedDEK)
+	if err != nil {
+		return false
+	}
+	defer zero(dek)
+	var prevTar bytes.Buffer
+	if err := DecryptStream(&prevTar, f, dek, hdr.BaseNonce[:], hdr.HeaderBytes); err != nil {
+		return false
+	}
+	return bytes.Equal(prevTar.Bytes(), tarBytes)
 }
 
 // cmdRestore implements `restore <id|latest> [--force]`.

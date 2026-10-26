@@ -1,6 +1,6 @@
 <span size="xx-large">XNote</span>
 
-Sticky notes that stay on your desktop. Each note is its own small window; the first line is its title; everything you type is saved as you go. The hints below cover what is not obvious from looking at a note. The full guide is at <u>https://github.com/spencercnorton/xnote/blob/main/docs/user-guide.md</u>.
+Sticky notes that stay on your desktop. Each note is its own small window; the first line is its title; everything you type is saved as you go. The hints below cover what is not obvious from looking at a note. The full guide is at <u>https://github.com/spencernorton/xnote/blob/main/docs/user-guide.md</u>.
 
 <span size="x-large">Notes</span>
 
@@ -72,4 +72,4 @@ Menu or SHIFT-F10: The note's right-click menu
 CTRL + left drag: Move the note
 CTRL + right drag: Resize the note</tt>
 
-Ideas and bug reports: <u>https://github.com/spencercnorton/xnote/issues</u>
+Ideas and bug reports: <u>https://github.com/spencernorton/xnote/issues</u>

@@ -61,9 +61,71 @@ xpad_backup_init (void)
 	}
 }
 
+static gboolean
+xpad_backup_is_initialised (void)
+{
+	/* If XPAD_CLOUD_BACKUP_HELPER is explicitly set (e.g. in tests), always
+	   allow running it. Otherwise, check that keyfile.json exists before
+	   spawning so uninitialised installations do not log errors or trigger
+	   failed systemd units on every note edit. */
+	const gchar *override = g_getenv ("XPAD_CLOUD_BACKUP_HELPER");
+	if (override && *override)
+		return TRUE;
+
+	gchar *keyfile = g_build_filename (g_get_user_data_dir (), "xnote-backup", "keyfile.json", NULL);
+	gboolean exists = g_file_test (keyfile, G_FILE_TEST_IS_REGULAR);
+	g_free (keyfile);
+	return exists;
+}
+
+static gboolean
+xpad_backup_can_use_systemd_unit (void)
+{
+	const gchar *override = g_getenv ("XPAD_CLOUD_BACKUP_HELPER");
+	if (override && *override)
+		return FALSE;
+
+	const gchar *runtime_dir = g_get_user_runtime_dir ();
+	if (!runtime_dir || !*runtime_dir)
+		return FALSE;
+
+	gchar *systemd_sock = g_build_filename (runtime_dir, "systemd", "private", NULL);
+	gboolean has_systemd = g_file_test (systemd_sock, G_FILE_TEST_EXISTS);
+	g_free (systemd_sock);
+	if (!has_systemd)
+		return FALSE;
+
+	gchar *user_unit = g_build_filename (g_get_user_config_dir (), "systemd", "user", "xnote-cloud-backup.service", NULL);
+	gboolean has_unit = g_file_test ("/usr/lib/systemd/user/xnote-cloud-backup.service", G_FILE_TEST_IS_REGULAR) ||
+	                    g_file_test ("/etc/systemd/user/xnote-cloud-backup.service", G_FILE_TEST_IS_REGULAR) ||
+	                    g_file_test (user_unit, G_FILE_TEST_IS_REGULAR);
+	g_free (user_unit);
+	return has_unit;
+}
+
 static void
 xpad_backup_run (void)
 {
+	if (!xpad_backup_is_initialised ())
+		return;
+
+	gchar *systemctl = NULL;
+	if (xpad_backup_can_use_systemd_unit ())
+		systemctl = g_find_program_in_path ("systemctl");
+
+	if (systemctl) {
+		GError *error = NULL;
+		gchar *argv[] = { systemctl, "--user", "start", "--no-block", "xnote-cloud-backup.service", NULL };
+		gboolean ok = g_spawn_async (NULL, argv, NULL,
+		                             G_SPAWN_STDOUT_TO_DEV_NULL,
+		                             NULL, NULL, NULL, &error);
+		g_free (systemctl);
+		if (ok)
+			return;
+		g_warning ("Failed to start xnote-cloud-backup.service via systemctl: %s", error->message);
+		g_error_free (error);
+	}
+
 	GError *error = NULL;
 	gchar *argv[] = { helper_path, "sync", NULL };
 

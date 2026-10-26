@@ -48,6 +48,7 @@ struct XpadPadGroupClass
 	GObjectClass parent_class;
 
 	void (* pad_added)      (XpadPadGroup *group, GtkWidget *pad);
+	void (* pad_removed)    (XpadPadGroup *group, GtkWidget *pad);
 };
 
 GType    xpad_pad_group_get_type (void);

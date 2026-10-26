@@ -1,7 +1,27 @@
 # Changelog
 
-## Unreleased
+## 3.2.4 — 2026-10-26
 
+- `xnote-cloud-backup` enforces a strict four-file encrypted remote kit gate
+  (`snapshot.xnote-enc`, `manifest.json`, `README-RESTORE.txt`, `RESTORE.sh`)
+  before any upload, verifies the `XNOTE\x00\x01\x01` header and wrapped DEK,
+  and automatically falls back from `rclone check --one-way --checksum` to
+  `rclone cryptcheck --one-way` (or `rclone check --one-way --download`) when
+  backing up to Dropbox, Google Drive or `crypt`-wrapped rclone remotes that
+  lack a common hash.
+- `xnote-cloud-backup sync` compares the deterministic note archive against the
+  validated local head snapshot and skips minting duplicate snapshot
+  generations when notes are unchanged, while still pushing any unsynced head
+  snapshot to the configured remote. Orphaned `.2026*` directories in
+  `remote-staging/` are swept under `backup.lock`.
+- `xpad_backup_run` activates `systemctl --user start --no-block
+  xnote-cloud-backup.service` when initialized on a systemd desktop so user
+  unit drop-ins apply and session logout does not interrupt an in-flight sync.
+- Fix the `pad-removed` class signal offset in `XpadPadGroup`, format `va_list`
+  arguments in `xpad_periodic_error_exit`, fix `GValue` getters and finalize
+  leaks in `XpadSettings`, `XpadPreferences`, `XpadPadProperties` and
+  `XpadPad`, replace accumulated per-widget `GtkCssProvider` instances in
+  `XpadTextView`, and fix the `@theme_fg_color` CSS fallback name.
 - Explain the backup helper’s keyring prerequisite before its initialization commands.
 
 - `tests/test-settings` keeps its settings file in each test's own temporary

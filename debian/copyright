@@ -1,6 +1,6 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: XNote
-Source: https://github.com/spencercnorton/xnote
+Source: https://github.com/spencernorton/xnote
 
 Files: *
 Copyright: 2001-2007 Michael Terry

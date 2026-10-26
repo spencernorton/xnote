@@ -49,7 +49,7 @@ struct XpadSettingsPrivate
 	gboolean random_color;
 	GdkRGBA *text;
 	GdkRGBA *back;
-	const gchar *fontname;
+	gchar *fontname;
 	GSList *toolbar_buttons;
 	gboolean autostart_wait_systray;
 	guint autostart_delay;
@@ -295,7 +295,8 @@ xpad_settings_finalize (GObject *object)
 {
 	XpadSettings *settings = XPAD_SETTINGS (object);
 
-	g_slist_free (settings->priv->toolbar_buttons);
+	g_slist_free_full (settings->priv->toolbar_buttons, g_free);
+	g_free (settings->priv->fontname);
 
 	if (settings->priv->text)
 		gdk_rgba_free (settings->priv->text);
@@ -415,6 +416,7 @@ xpad_settings_set_property (GObject *object, guint prop_id, const GValue *value,
 		break;
 
 	case PROP_FONTNAME:
+		g_free (priv->fontname);
 		if (value)
 			priv->fontname = g_value_dup_string (value);
 		else
@@ -557,24 +559,15 @@ xpad_settings_get_property (GObject *object, guint prop_id, GValue *value, GPara
 	switch (prop_id)
 	{
 	case PROP_TEXT_COLOR:
-		if (priv->text)
-			g_value_set_static_boxed (value, priv->text);
-		else
-			value = NULL;
+		g_value_set_boxed (value, priv->text);
 		break;
 
 	case PROP_BACK_COLOR:
-		if (priv->back)
-			g_value_set_static_boxed (value, priv->back);
-		else
-			value = NULL;
+		g_value_set_boxed (value, priv->back);
 		break;
 
 	case PROP_FONTNAME:
-		if (priv->fontname)
-			g_value_set_string (value, priv->fontname);
-		else
-			value = NULL;
+		g_value_set_string (value, priv->fontname);
 		break;
 
 	case PROP_AUTOSTART_XPAD:
@@ -691,9 +684,9 @@ load_from_file (XpadSettings *settings, const gchar *filename)
 	}
 
 	/* If the String value of NULL has been retrieved, then the user wants to follow the GTK theme font */
-    if (priv->fontname && strcmp (priv->fontname, "NULL") == 0) {
-    	priv->fontname = NULL;
-    }
+	if (priv->fontname && strcmp (priv->fontname, "NULL") == 0) {
+		g_clear_pointer (&priv->fontname, g_free);
+	}
 
 	if (buttons) {
 		gint i;

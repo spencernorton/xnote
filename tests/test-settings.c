@@ -267,6 +267,61 @@ test_tray_disabled_preserves_startup_display (void)
 	g_free (tmpdir);
 }
 
+static void
+test_color_and_font_props_round_trip (void)
+{
+	gchar *tmpdir = setup_temp_home ();
+
+	XpadSettings *settings = xpad_settings_new ();
+	GdkRGBA set_text = { 0.1, 0.2, 0.3, 1.0 };
+	GdkRGBA set_back = { 0.9, 0.8, 0.7, 1.0 };
+	GdkRGBA *got_text = NULL;
+	GdkRGBA *got_back = NULL;
+	gchar *got_font = NULL;
+
+	g_object_set (settings,
+		"text-color", &set_text,
+		"back-color", &set_back,
+		"fontname", "Monospace 13",
+		NULL);
+
+	g_object_get (settings,
+		"text-color", &got_text,
+		"back-color", &got_back,
+		"fontname", &got_font,
+		NULL);
+	g_assert_nonnull (got_text);
+	g_assert_nonnull (got_back);
+	g_assert_true (gdk_rgba_equal (got_text, &set_text));
+	g_assert_true (gdk_rgba_equal (got_back, &set_back));
+	g_assert_cmpstr (got_font, ==, "Monospace 13");
+	gdk_rgba_free (got_text);
+	gdk_rgba_free (got_back);
+	g_free (got_font);
+
+	/* Setting to NULL (theme default) must return NULL cleanly on get. */
+	g_object_set (settings,
+		"text-color", NULL,
+		"back-color", NULL,
+		"fontname", NULL,
+		NULL);
+	got_text = (GdkRGBA *) 0x1;
+	got_back = (GdkRGBA *) 0x1;
+	got_font = (gchar *) 0x1;
+	g_object_get (settings,
+		"text-color", &got_text,
+		"back-color", &got_back,
+		"fontname", &got_font,
+		NULL);
+	g_assert_null (got_text);
+	g_assert_null (got_back);
+	g_assert_null (got_font);
+
+	g_object_unref (settings);
+	remove_temp_home (tmpdir);
+	g_free (tmpdir);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -278,6 +333,8 @@ main (int argc, char **argv)
 	g_test_add_func ("/settings/uint_props_round_trip", test_uint_props_round_trip);
 	g_test_add_func ("/settings/tray_disabled_preserves_startup_display",
 	                 test_tray_disabled_preserves_startup_display);
+	g_test_add_func ("/settings/color_and_font_props_round_trip",
+	                 test_color_and_font_props_round_trip);
 
 	return g_test_run ();
 }

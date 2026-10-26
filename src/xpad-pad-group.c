@@ -85,7 +85,7 @@ xpad_pad_group_class_init (XpadPadGroupClass *klass)
 		g_signal_new ("pad_removed",
 		              G_OBJECT_CLASS_TYPE (object_class),
 		              G_SIGNAL_RUN_FIRST,
-		              G_STRUCT_OFFSET (XpadPadGroupClass, pad_added),
+		              G_STRUCT_OFFSET (XpadPadGroupClass, pad_removed),
 		              NULL, NULL,
 		              g_cclosure_marshal_VOID__OBJECT,
 		              G_TYPE_NONE,
@@ -195,7 +195,6 @@ xpad_pad_group_num_visible_pads (XpadPadGroup *group)
 			if (gtk_widget_get_visible(GTK_WIDGET(i->data)))
 				num ++;
 		}
-		g_slist_free(i);
 	}
 	return num;
 }
