@@ -97,6 +97,7 @@ func buildRecoveryKit(snapshotID, device string) (string, error) {
 	if err := os.MkdirAll(stageRoot, 0700); err != nil {
 		return "", fmt.Errorf("create recovery-kit staging root: %w", err)
 	}
+	sweepRemoteStaging(stageRoot)
 	kitDir, err := os.MkdirTemp(stageRoot, "."+snapshotID+"-")
 	if err != nil {
 		return "", fmt.Errorf("create recovery-kit staging directory: %w", err)
@@ -149,8 +150,57 @@ func buildRecoveryKit(snapshotID, device string) (string, error) {
 	if _, err := validateRecoveryKit(kitDir); err != nil {
 		return "", fmt.Errorf("validate staged recovery kit: %w", err)
 	}
+	if err := verifyStagingKitEncryptedOnly(kitDir, &manifest); err != nil {
+		return "", fmt.Errorf("verify E2EE staging kit: %w", err)
+	}
 	ok = true
 	return kitDir, nil
+}
+
+// sweepRemoteStaging removes orphaned staging directories left behind if a
+// previous helper process was killed (e.g. SIGKILL on session logout) mid-push.
+// Callers hold the exclusive backup.lock when invoking buildRecoveryKit.
+func sweepRemoteStaging(stageRoot string) {
+	entries, err := os.ReadDir(stageRoot)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".") {
+			_ = os.RemoveAll(filepath.Join(stageRoot, entry.Name()))
+		}
+	}
+}
+
+// verifyStagingKitEncryptedOnly enforces that a staged recovery kit contains
+// exclusively the allowlisted encrypted snapshot and metadata files—never raw
+// note files (content-*, info-*, default-style) or unexpected artifacts.
+func verifyStagingKitEncryptedOnly(kitDir string, manifest *RecoveryManifest) error {
+	allowed := map[string]bool{
+		".":                   true,
+		"snapshots":           true,
+		recoveryManifestName:  true,
+		"keyfile.json":        true,
+		"head.json":           true,
+		manifest.SnapshotFile: true,
+	}
+	return filepath.WalkDir(kitDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(kitDir, path)
+		if err != nil {
+			return err
+		}
+		relSlash := filepath.ToSlash(rel)
+		if !allowed[relSlash] {
+			return fmt.Errorf("unexpected file in E2EE recovery kit: %s", relSlash)
+		}
+		if strings.HasPrefix(d.Name(), "content-") || strings.HasPrefix(d.Name(), "info-") || d.Name() == "default-style" {
+			return fmt.Errorf("plaintext note file forbidden in E2EE recovery kit: %s", relSlash)
+		}
+		return nil
+	})
 }
 
 func loadRecoveryManifest(kitDir string) (*RecoveryManifest, error) {
@@ -263,9 +313,20 @@ func validateRecoveryPayload(kitDir string, manifest *RecoveryManifest) error {
 		return err
 	}
 	hdr, headerErr := ReadHeader(sf)
+	var bodySample [512]byte
+	bodyN, _ := sf.Read(bodySample[:])
 	sf.Close()
 	if headerErr != nil {
 		return fmt.Errorf("read recovery snapshot header: %w", headerErr)
+	}
+	if len(hdr.WrappedDEK) != wrappedMasterKeyLen {
+		return fmt.Errorf("recovery snapshot wrapped DEK has invalid length %d", len(hdr.WrappedDEK))
+	}
+	if bodyN < 4+16 {
+		return fmt.Errorf("recovery snapshot ciphertext body is truncated (%d bytes)", bodyN)
+	}
+	if bytes.Contains(bodySample[:bodyN], []byte("ustar")) {
+		return fmt.Errorf("recovery snapshot body appears unencrypted (tar magic found)")
 	}
 	if hdr.Generation != manifest.Generation || head.Generation != manifest.Generation {
 		return fmt.Errorf("recovery generation mismatch")

@@ -38,6 +38,7 @@ struct XpadTextViewPrivate
 	gulong notify_back_handler;
 	gulong notify_font_handler;
 	GtkCssProvider *font_provider;
+	GtkCssProvider *color_provider;
 	GdkRGBA *text_color;
 	GdkRGBA *back_color;
 	XpadTextBuffer *buffer;
@@ -177,6 +178,7 @@ xpad_text_view_dispose (GObject *object)
 		g_signal_handlers_disconnect_matched (view->priv->settings, G_SIGNAL_MATCH_DATA, 0, 0, NULL, NULL, view);
 	g_clear_object (&view->priv->settings);
 	g_clear_object (&view->priv->font_provider);
+	g_clear_object (&view->priv->color_provider);
 
 	if (view->priv->text_color) {
 		gdk_rgba_free(view->priv->text_color);
@@ -406,7 +408,7 @@ void
 xpad_text_view_set_colors (GtkWidget *view, GdkRGBA *text_color, GdkRGBA *back_color) {
 	g_object_set(view, "text-color", text_color, "back-color", back_color, NULL);
 
-	gchar *text_color_string = text_color ? gdk_rgba_to_string (text_color) : g_strdup("@theme-fg_color");
+	gchar *text_color_string = text_color ? gdk_rgba_to_string (text_color) : g_strdup("@theme_fg_color");
 	gchar *back_color_string = back_color ? gdk_rgba_to_string (back_color) : g_strdup("@theme_bg_color");
 
 	gchar *cssStyling = g_strconcat(
@@ -416,14 +418,18 @@ xpad_text_view_set_colors (GtkWidget *view, GdkRGBA *text_color, GdkRGBA *back_c
 			";}\n", NULL);
 
 	GtkStyleContext *context = gtk_widget_get_style_context (view);
+	if (XPAD_TEXT_VIEW (view)->priv->color_provider) {
+		gtk_style_context_remove_provider (context, GTK_STYLE_PROVIDER (XPAD_TEXT_VIEW (view)->priv->color_provider));
+		g_clear_object (&XPAD_TEXT_VIEW (view)->priv->color_provider);
+	}
 	GtkCssProvider *provider = gtk_css_provider_new ();
 	gtk_css_provider_load_from_data (provider, cssStyling, -1);
 	gtk_style_context_add_provider (context, GTK_STYLE_PROVIDER (provider), GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+	XPAD_TEXT_VIEW (view)->priv->color_provider = provider;
 
 	g_free(cssStyling);
 	g_free(text_color_string);
 	g_free(back_color_string);
-	g_clear_object (&provider);
 }
 
 /* Set the font of the pad, which is in the text view */

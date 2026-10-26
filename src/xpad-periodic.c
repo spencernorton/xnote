@@ -300,8 +300,11 @@ gint gprint_ignore (const char * fmt, ...)
 static void xpad_periodic_error_exit (const char * fmt, ...)
 {
 	va_list app;
+	gchar *msg;
 	va_start(app, fmt);
-	g_printerr(fmt, app);
+	msg = g_strdup_vprintf(fmt, app);
 	va_end(app);
+	g_printerr("%s", msg);
+	g_free(msg);
 	exit(1);
 }

@@ -1508,7 +1508,7 @@ xpad_pad_save_content (XpadPad *pad)
 		buffer = XPAD_TEXT_BUFFER (gtk_text_view_get_buffer (GTK_TEXT_VIEW (pad->priv->textview)));
 		content = xpad_text_buffer_get_text_with_tags (buffer);
 	} else {
-		g_warning("There is a problem in the program XNote. In function 'xpad_pad_save_content' the variable 'pad->priv->textview' is not of type textview. Please report it at https://github.com/spencercnorton/xnote/issues to help improve XNote.");
+		g_warning("There is a problem in the program XNote. In function 'xpad_pad_save_content' the variable 'pad->priv->textview' is not of type textview. Please report it at https://github.com/spencernorton/xnote/issues to help improve XNote.");
 		return;
 	}
 
@@ -1677,6 +1677,10 @@ xpad_pad_save_info (XpadPad *pad)
 	g_free (text_color_string);
 	g_free (back_color_string);
 	g_free (font_string);
+	if (text_color)
+		gdk_rgba_free (text_color);
+	if (back_color)
+		gdk_rgba_free (back_color);
 
 	xpad_backup_schedule ();
 }
@@ -1691,7 +1695,7 @@ menu_about (XpadPad *pad)
 	/* Translators: please translate this as your own name and optionally email
 		like so: "Your Name" */
 	const gchar *translator_credits = _("translator-credits");
-	const gchar *website = "https://github.com/spencercnorton/xnote";
+	const gchar *website = "https://github.com/spencernorton/xnote";
 
 	gtk_show_about_dialog (GTK_WINDOW (pad),
 		"artists", artists,

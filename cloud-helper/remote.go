@@ -225,6 +225,9 @@ func pushRecoveryKit(cfg Config, kitDir, hostname string) error {
 	if err != nil {
 		return fmt.Errorf("validate local recovery kit: %w", err)
 	}
+	if err := verifyStagingKitEncryptedOnly(kitDir, manifest); err != nil {
+		return fmt.Errorf("verify local E2EE recovery kit: %w", err)
+	}
 	if err := validateSnapshotID(manifest.SnapshotID); err != nil {
 		return err
 	}
@@ -268,8 +271,7 @@ func pushRecoveryKit(cfg Config, kitDir, hostname string) error {
 		"--immutable", "--checksum", "--exclude", recoveryManifestName); err != nil {
 		return fmt.Errorf("upload recovery-kit payload: %w", err)
 	}
-	if _, err := runRemoteCommand(cfg, "rclone", "check", kitDir, dest,
-		"--one-way", "--checksum", "--exclude", recoveryManifestName); err != nil {
+	if err := verifyRclonePayload(cfg, kitDir, dest); err != nil {
 		return fmt.Errorf("verify recovery-kit payload: %w", err)
 	}
 	if _, err := runRemoteCommand(cfg, "rclone", "copyto",
@@ -298,6 +300,34 @@ func pushRecoveryKit(cfg Config, kitDir, hostname string) error {
 	}
 	if !bytes.Equal(remoteManifest, localManifest) {
 		return fmt.Errorf("remote recovery-kit manifest verification failed")
+	}
+	return nil
+}
+
+// verifyRclonePayload verifies that the uploaded recovery-kit payload on an
+// rclone remote matches local ciphertext hashes. Plain remotes (Dropbox,
+// Google Drive, local/alias) support `rclone check --checksum` directly.
+// Encrypted rclone `crypt` remotes (e.g. gdrive-vault:) do not expose
+// plaintext hashes to `rclone check --checksum` and emit "No common hash found"
+// or "hashes could not be checked"; in that case we run `rclone cryptcheck`
+// (falling back to `rclone check --download` if the backend is neither
+// hash-capable nor a crypt remote).
+func verifyRclonePayload(cfg Config, kitDir, dest string) error {
+	out, err := runRemoteCommand(cfg, "rclone", "check", kitDir, dest,
+		"--one-way", "--checksum", "--exclude", recoveryManifestName)
+	if err != nil {
+		return err
+	}
+	if strings.Contains(out, "No common hash found") || strings.Contains(out, "hashes could not be checked") {
+		if _, cryptErr := runRemoteCommand(cfg, "rclone", "cryptcheck", kitDir, dest,
+			"--one-way", "--exclude", recoveryManifestName); cryptErr != nil {
+			if strings.Contains(cryptErr.Error(), "is not a crypt remote") {
+				_, dlErr := runRemoteCommand(cfg, "rclone", "check", kitDir, dest,
+					"--one-way", "--download", "--exclude", recoveryManifestName)
+				return dlErr
+			}
+			return cryptErr
+		}
 	}
 	return nil
 }
@@ -342,11 +372,13 @@ func listRemoteKits(cfg Config, hostname string) ([]string, error) {
 		if err != nil {
 			return nil, fmt.Errorf("list remote kits: %w", err)
 		}
+		seen := make(map[string]bool)
 		for _, line := range strings.Split(out, "\n") {
 			line = strings.TrimSpace(line)
 			parts := strings.Split(line, "/")
 			if len(parts) == 2 && parts[1] == recoveryManifestName &&
-				validateSnapshotID(parts[0]) == nil {
+				validateSnapshotID(parts[0]) == nil && !seen[parts[0]] {
+				seen[parts[0]] = true
 				ids = append(ids, parts[0])
 			}
 		}

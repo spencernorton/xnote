@@ -37,8 +37,10 @@ func main() {
 	switch cmd {
 	case "init":
 		err = withStateLock(cmdInit)
-	case "backup", "sync":
+	case "backup":
 		err = withStateLock(cmdBackup)
+	case "sync":
+		err = withStateLock(cmdSync)
 	case "restore":
 		args := os.Args[2:]
 		err = withStateLock(func() error { return cmdRestore(args) })

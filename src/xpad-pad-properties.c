@@ -101,7 +101,9 @@ xpad_pad_properties_init (XpadPadProperties *prop)
 	gtk_box_set_homogeneous (appearance_vbox, FALSE);
 	gtk_widget_set_margin_bottom (GTK_WIDGET (appearance_vbox), 12);
 
-	label = gtk_label_new (g_strconcat ("<b>", _("Appearance"), "</b>", NULL));
+	gchar *appearance_markup = g_strconcat ("<b>", _("Appearance"), "</b>", NULL);
+	label = gtk_label_new (appearance_markup);
+	g_free (appearance_markup);
 	gtk_label_set_use_markup (GTK_LABEL (label), TRUE);
 	gtk_box_append (appearance_vbox, label);
 
@@ -295,7 +297,7 @@ xpad_pad_properties_get_property (GObject *object, guint prop_id, GValue *value,
 		break;
 
 	case PROP_FONTNAME:
-		g_value_set_string (value, gtk_font_chooser_get_font (GTK_FONT_CHOOSER (prop->priv->fontbutton)));
+		g_value_take_string (value, gtk_font_chooser_get_font (GTK_FONT_CHOOSER (prop->priv->fontbutton)));
 		break;
 
 	default:

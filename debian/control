@@ -20,7 +20,7 @@ Build-Depends:
  libgdk-pixbuf-2.0-dev,
  golang-go (>= 2:1.26~1)
 Standards-Version: 4.6.2
-Homepage: https://github.com/spencercnorton/xnote
+Homepage: https://github.com/spencernorton/xnote
 Rules-Requires-Root: no
 
 Package: xnote
