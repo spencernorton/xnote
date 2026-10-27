@@ -782,7 +782,12 @@ xpad_app_load_pads (void)
 		*/
 
 		if ((show || option_show) && !option_hide) {
-			gtk_window_present (GTK_WINDOW (pad));
+			/* Map restored pads without gtk_window_present(): calling
+			   gtk_window_present() on every pad at login sends an
+			   xdg_activation_v1 focus request per note across workspaces,
+			   which the compositor denies as focus-stealing and turns into
+			   demands-attention urgency on the dock icon. */
+			gtk_widget_set_visible (pad, TRUE);
 		} else if (show) {
 			/* pad thought it would show, we should save that it didn't */
 			xpad_pad_save_info_delayed (XPAD_PAD (pad));
@@ -1170,6 +1175,7 @@ process_remote_args (gint *argc, gchar **argv[], gboolean have_gtk, XpadSettings
 		   serves every command a second xnote sends to the running instance
 		   (--show, --hide, --toggle, a file), and those must not spawn a pad. */
 		static gboolean startup_args_done = FALSE;
+		gboolean is_startup = !startup_args_done;
 
 		if (!option_new && !startup_args_done) {
 			g_object_get (settings, "autostart-new-pad", &option_new, NULL);
@@ -1178,7 +1184,10 @@ process_remote_args (gint *argc, gchar **argv[], gboolean have_gtk, XpadSettings
 
 		if (have_gtk && option_new) {
 			GtkWidget *pad = xpad_pad_new (pad_group, settings);
-			gtk_widget_show (pad);
+			if (is_startup)
+				gtk_widget_set_visible (pad, TRUE);
+			else
+				gtk_window_present (GTK_WINDOW (pad));
 		}
 
 		if (have_gtk && (option_show)) {
@@ -1211,7 +1220,10 @@ process_remote_args (gint *argc, gchar **argv[], gboolean have_gtk, XpadSettings
 				GtkWidget *pad = xpad_pad_new_from_file (pad_group, settings, option_files[i]);
 
 				if (pad) {
-					gtk_widget_show (pad);
+					if (is_startup)
+						gtk_widget_set_visible (pad, TRUE);
+					else
+						gtk_window_present (GTK_WINDOW (pad));
 				}
 			}
 		}

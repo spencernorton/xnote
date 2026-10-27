@@ -619,10 +619,11 @@ xpad_pad_show (XpadPad *pad)
 	/* No client-side placement: Wayland has no protocol for a window to set
 	   its own position, so the compositor decides where the pad lands. The
 	   saved x/y are still round-tripped through the info file (see
-	   xpad_pad_save_info) purely so a downgrade keeps working. */
-
-	/* Show the pad and set the cursor into the pad */
-	gtk_window_present (GTK_WINDOW (pad));
+	   xpad_pad_save_info) purely so a downgrade keeps working.
+	   Do not call gtk_window_present() here: "map" fires when the window is
+	   already being shown, and calling gtk_window_present() on every map
+	   sends a redundant xdg_activation_v1 focus request for every restored
+	   note at login. */
 	gtk_widget_grab_focus (GTK_WIDGET (pad->priv->textview));
 
 	/* Save the new visibility status to the disk */
@@ -901,7 +902,7 @@ static void
 xpad_pad_spawn (XpadPad *pad)
 {
 	GtkWidget *newpad = xpad_pad_new (pad->priv->group, pad->priv->settings);
-	gtk_widget_show (newpad);
+	gtk_window_present (GTK_WINDOW (newpad));
 }
 
 static void

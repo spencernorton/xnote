@@ -267,7 +267,8 @@ tray_dispatch (TrayItem *item)
 	switch (item->action) {
 	case TRAY_ACT_NEW: {
 		GtkWidget *pad = xpad_pad_new (group, tray_settings);
-		gtk_widget_set_visible (pad, TRUE);
+		if (pad)
+			gtk_window_present (GTK_WINDOW (pad));
 		break;
 	}
 	case TRAY_ACT_SHOW_ALL:
@@ -468,13 +469,15 @@ tray_sni_method (GDBusConnection *connection, const gchar *sender,
 			xpad_pad_group_toggle_hide (xpad_app_get_pad_group ());
 		} else if (click_cfg == 3) {
 			GtkWidget *pad = xpad_pad_new (xpad_app_get_pad_group (), tray_settings);
-			gtk_widget_set_visible (pad, TRUE);
+			if (pad)
+				gtk_window_present (GTK_WINDOW (pad));
 		}
 		/* 0 and 2: nothing to do here. */
 	}
 	else if (g_strcmp0 (method_name, "SecondaryActivate") == 0) {
 		GtkWidget *pad = xpad_pad_new (xpad_app_get_pad_group (), tray_settings);
-		gtk_widget_set_visible (pad, TRUE);
+		if (pad)
+			gtk_window_present (GTK_WINDOW (pad));
 	}
 	/* ContextMenu / Scroll: nothing extra to do; the host shows the dbusmenu. */
 

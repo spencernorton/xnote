@@ -64,6 +64,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="3.2.6" date="2026-10-27">
+      <description>
+        <p>Map restored notes quietly on startup without sending focus-stealing activation requests across workspaces, and disable desktop startup notification so the dock icon does not bounce or cycle workspaces on login.</p>
+      </description>
+    </release>
     <release version="3.2.5" date="2026-10-27">
       <description>
         <p>Add a Backup page to XNote Preferences with target selection (Local Only, Google Drive, Dropbox, or custom path/remote), one-click browser OAuth sign-in, in-app end-to-end encryption setup/unlock/passphrase rotation, manual backup trigger, and hourly timer control.</p>
