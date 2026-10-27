@@ -64,6 +64,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="3.2.5" date="2026-10-27">
+      <description>
+        <p>Add a Backup page to XNote Preferences with target selection (Local Only, Google Drive, Dropbox, or custom path/remote), one-click browser OAuth sign-in, in-app end-to-end encryption setup/unlock/passphrase rotation, manual backup trigger, and hourly timer control.</p>
+      </description>
+    </release>
     <release version="3.2.4" date="2026-10-26">
       <description>
         <p>End-to-end encrypted backup verification for Dropbox, Google Drive and rclone crypt remotes, unchanged-note sync deduplication, systemd user unit activation on autosave, and GTK 4 / GObject memory and signal fixes.</p>

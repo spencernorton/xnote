@@ -26,6 +26,7 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 G_BEGIN_DECLS
 
 void xpad_backup_init (void);
+const gchar *xpad_backup_get_helper_path (void);
 void xpad_backup_schedule (void);
 void xpad_backup_flush (void);
 

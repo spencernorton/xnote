@@ -52,7 +52,16 @@ func main() {
 		args := os.Args[2:]
 		err = withStateLock(func() error { return cmdImport(args) })
 	case "status":
-		err = cmdStatus()
+		err = cmdStatus(os.Args[2:]...)
+	case "set-target":
+		args := os.Args[2:]
+		err = withStateLock(func() error { return cmdSetTarget(args) })
+	case "connect":
+		args := os.Args[2:]
+		err = withStateLock(func() error { return cmdConnect(args) })
+	case "disconnect":
+		args := os.Args[2:]
+		err = withStateLock(func() error { return cmdDisconnect(args) })
 	case "unlock":
 		err = runUnlock(os.Args[2:])
 	case "rotate-passphrase":
@@ -60,7 +69,7 @@ func main() {
 	case "show-recovery":
 		err = cmdShowRecovery()
 	default:
-		fmt.Fprintf(os.Stderr, "usage: xnote-cloud-backup [init|backup|restore <id|latest>|list|remote-list|import <id|latest>|status|unlock|rotate-passphrase|show-recovery]\n")
+		fmt.Fprintf(os.Stderr, "usage: xnote-cloud-backup [init|backup|sync|restore <id|latest>|list|remote-list|import <id|latest>|status [--json|--porcelain]|set-target <local|gdrive|dropbox|custom> [remote]|connect <gdrive|dropbox>|disconnect <gdrive|dropbox>|unlock|rotate-passphrase|show-recovery]\n")
 		os.Exit(2)
 	}
 

@@ -61,6 +61,22 @@ xpad_backup_init (void)
 	}
 }
 
+const gchar *
+xpad_backup_get_helper_path (void)
+{
+	const gchar *override = g_getenv ("XPAD_CLOUD_BACKUP_HELPER");
+	if (override && *override) {
+		if (g_strcmp0 (helper_path, override) != 0) {
+			g_free (helper_path);
+			helper_path = g_strdup (override);
+		}
+		return helper_path;
+	}
+	if (!helper_path)
+		xpad_backup_init ();
+	return helper_path;
+}
+
 static gboolean
 xpad_backup_is_initialised (void)
 {

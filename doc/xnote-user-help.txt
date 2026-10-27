@@ -42,13 +42,14 @@ CTRL-J locks every note against accidental edits. While locked, a left-drag move
 
 <span size="x-large">Preferences</span>
 
-Open with [Right-click] - [Preferences], from the tray menu, or with the Preferences toolbar button. Five pages:
+Open with [Right-click] - [Preferences], from the tray menu, or with the Preferences toolbar button. Six pages:
 
 View – toolbar, autohide, scrollbar, window decorations
 Layout – font, colours, random colour for new notes, default note size
 Startup – start after login, open a new note on start, a delay for slow tray hosts, and which notes to show
 Tray – enable the tray icon; what a left click on it does
 Other – read-only notes, confirm deletion, line numbers
+Backup – choose Local Only, Google Drive, Dropbox, or a custom folder/remote; sign in with your cloud provider; set up or unlock end-to-end encryption; back up now or enable hourly background sync
 
 <span size="x-large">Tray icon</span>
 

@@ -170,8 +170,9 @@ With text selected the menu is *Cut*, *Copy*, *Paste*; *Bold*, *Italic*,
 ## Preferences
 
 Open Preferences from any note's right-click menu, from the tray menu, or
-with the *Preferences* toolbar button. The dialog has five pages. Every
-change applies immediately and is written to `default-style`.
+with the *Preferences* toolbar button. The dialog has six pages. Every
+change applies immediately and is written to `default-style` (or
+`cloud-backup.conf` on the *Backup* page).
 
 **View.**
 *Toolbar*: *Show toolbar* (on) and *Autohide toolbar* (on; greyed out while
@@ -209,6 +210,19 @@ it is announced to the tray host when the icon registers.
 *Make pads read-only (CTRL-J)* (off), *Confirm pad deletion* (on), and
 *Enable line numbering* (off; shows line numbers down the left edge of every
 note).
+
+**Backup.**
+*Backup target*: choose *Local Only*, *Google Drive*, *Dropbox*, or *Custom
+Folder or Remote*. Selecting *Google Drive* or *Dropbox* reveals a *Sign In…*
+(or *Reconnect…* / *Disconnect*) button that opens your browser to authorize
+`rclone` and writes `~/.config/xnote/cloud-backup.conf`.
+*End-to-End Encryption*: *Set Up Encryption…*, *Unlock…*, or *Change
+Passphrase…* directly in the dialog (passphrases are piped over `stdin` to
+`xnote-cloud-backup`, and initial setup presents the one-time recovery code
+with a *Copy Recovery Code* button).
+*Status & Schedule*: shows the local snapshot count, generation, and last
+cloud sync status, with a *Back Up Now* button and an *Automatic hourly
+background backup* switch for `xnote-cloud-backup.timer`.
 
 ## Tray
 
@@ -347,7 +361,10 @@ without it `init` cannot cache the key, `unlock` fails the same way, and
 | `init` | Create the wrapped master key and print the one-time recovery code |
 | `backup` (default; `sync` is an alias used by the app and the timer) | Snapshot the notes locally and, if a remote is configured, push a recovery kit |
 | `list` | List local snapshots |
-| `status` | Initialised or not, snapshot count, head generation, remote, last remote attempt, success and error |
+| `status [--json\|--porcelain]` | Initialised or not, snapshot count, head generation, remote, last remote attempt, success and error |
+| `set-target <local\|gdrive\|dropbox\|custom> [remote]` | Set `CLOUD_REMOTE` in `~/.config/xnote/cloud-backup.conf` |
+| `connect <gdrive\|dropbox>` | Sign in to Google Drive or Dropbox in the browser through `rclone` and set it as the backup target |
+| `disconnect <gdrive\|dropbox>` | Delete the `rclone` remote for Google Drive or Dropbox and reset the target if active |
 | `restore <id\|latest> [--force]` | Restore a local snapshot into `~/.config/xnote`; close XNote first |
 | `remote-list` | List complete recovery kits on the remote |
 | `import <id\|latest> [--force]` | Download a kit and install its keyfile, head and snapshot as the local state |

@@ -542,3 +542,202 @@ func rcloneCatToFile(cfg Config, source, dest string, maxBytes int64) error {
 	}
 	return nil
 }
+
+const (
+	defaultGDriveRemoteName  = "xnote-gdrive"
+	defaultGDriveRemoteSpec  = "xnote-gdrive:xnote-backup"
+	defaultDropboxRemoteName = "xnote-dropbox"
+	defaultDropboxRemoteSpec = "xnote-dropbox:xnote-backup"
+	oauthConnectTimeout      = 300 * time.Second
+)
+
+func rcloneConfigPath() string {
+	if p := strings.TrimSpace(os.Getenv("RCLONE_CONFIG")); p != "" {
+		return p
+	}
+	if d := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")); d != "" {
+		return filepath.Join(d, "rclone", "rclone.conf")
+	}
+	return filepath.Join(os.Getenv("HOME"), ".config", "rclone", "rclone.conf")
+}
+
+// isRcloneRemoteConfigured checks whether the named section exists in rclone.conf
+// with the expected backend type and a non-empty token. Secret values are never
+// returned or logged.
+func isRcloneRemoteConfigured(remoteName, expectedType string) bool {
+	data, err := os.ReadFile(rcloneConfigPath())
+	if err != nil {
+		return false
+	}
+	var inSection, hasType, hasToken bool
+	targetHeader := "[" + remoteName + "]"
+	for _, rawLine := range strings.Split(string(data), "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
+			continue
+		}
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+			if inSection {
+				break
+			}
+			inSection = (line == targetHeader)
+			continue
+		}
+		if !inSection {
+			continue
+		}
+		k, v, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		k = strings.TrimSpace(k)
+		v = strings.TrimSpace(v)
+		switch k {
+		case "type":
+			hasType = (v == expectedType)
+		case "token":
+			hasToken = (v != "")
+		}
+	}
+	return inSection && hasType && hasToken
+}
+
+func classifyTargetMode(cloudRemote string) string {
+	r := strings.TrimSpace(cloudRemote)
+	switch {
+	case r == "":
+		return "local"
+	case r == defaultGDriveRemoteSpec || strings.HasPrefix(r, defaultGDriveRemoteName+":") || strings.HasPrefix(r, "gdrive:"):
+		return "gdrive"
+	case r == defaultDropboxRemoteSpec || strings.HasPrefix(r, defaultDropboxRemoteName+":") || strings.HasPrefix(r, "dropbox:"):
+		return "dropbox"
+	default:
+		return "custom"
+	}
+}
+
+func cmdSetTarget(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: set-target <local|gdrive|dropbox|custom> [remote-spec]")
+	}
+	mode := strings.TrimSpace(args[0])
+	cfg, err := LoadConfig()
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+	switch mode {
+	case "local":
+		cfg.CloudRemote = ""
+	case "gdrive":
+		cfg.CloudRemote = defaultGDriveRemoteSpec
+	case "dropbox":
+		cfg.CloudRemote = defaultDropboxRemoteSpec
+	case "custom":
+		if len(args) < 2 || strings.TrimSpace(args[1]) == "" {
+			return fmt.Errorf("usage: set-target custom <path-or-rclone-remote>")
+		}
+		spec := strings.TrimSpace(args[1])
+		if _, err := parseRemoteTarget(spec); err != nil {
+			return err
+		}
+		cfg.CloudRemote = spec
+	default:
+		return fmt.Errorf("unknown target mode %q (expected local, gdrive, dropbox, or custom)", mode)
+	}
+	if err := SaveConfig(cfg); err != nil {
+		return err
+	}
+	log("backup target updated -> %s", mode)
+	return nil
+}
+
+func cmdConnect(args []string) error {
+	if len(args) != 1 {
+		return fmt.Errorf("usage: connect <gdrive|dropbox>")
+	}
+	provider := strings.TrimSpace(args[0])
+	var remoteName, backendType, remoteSpec string
+	var createArgs []string
+
+	switch provider {
+	case "gdrive":
+		remoteName = defaultGDriveRemoteName
+		backendType = "drive"
+		remoteSpec = defaultGDriveRemoteSpec
+		createArgs = []string{"config", "create", remoteName, backendType, "scope=drive.file", "config_is_local=true", "--no-output"}
+	case "dropbox":
+		remoteName = defaultDropboxRemoteName
+		backendType = "dropbox"
+		remoteSpec = defaultDropboxRemoteSpec
+		createArgs = []string{"config", "create", remoteName, backendType, "config_is_local=true", "--no-output"}
+	default:
+		return fmt.Errorf("unknown cloud provider %q (expected gdrive or dropbox)", provider)
+	}
+
+	if _, err := exec.LookPath("rclone"); err != nil {
+		return fmt.Errorf("rclone is not installed; install the 'rclone' package to sign in to cloud storage")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), oauthConnectTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "rclone", createArgs...)
+	out, err := cmd.CombinedOutput()
+	if ctx.Err() == context.DeadlineExceeded {
+		return fmt.Errorf("browser sign-in timed out after %s", oauthConnectTimeout)
+	}
+	if err != nil {
+		return fmt.Errorf("rclone sign-in failed: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	if !isRcloneRemoteConfigured(remoteName, backendType) {
+		return fmt.Errorf("rclone sign-in completed without storing a valid %s token for %s", backendType, remoteName)
+	}
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+	cfg.CloudRemote = remoteSpec
+	if err := SaveConfig(cfg); err != nil {
+		return err
+	}
+	log("connected %s (%s)", provider, remoteSpec)
+	return nil
+}
+
+func cmdDisconnect(args []string) error {
+	if len(args) != 1 {
+		return fmt.Errorf("usage: disconnect <gdrive|dropbox>")
+	}
+	provider := strings.TrimSpace(args[0])
+	var remoteName string
+	switch provider {
+	case "gdrive":
+		remoteName = defaultGDriveRemoteName
+	case "dropbox":
+		remoteName = defaultDropboxRemoteName
+	default:
+		return fmt.Errorf("unknown cloud provider %q (expected gdrive or dropbox)", provider)
+	}
+
+	if _, err := exec.LookPath("rclone"); err == nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, "rclone", "config", "delete", remoteName)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("rclone disconnect failed: %w: %s", err, strings.TrimSpace(string(out)))
+		}
+	}
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+	if classifyTargetMode(cfg.CloudRemote) == provider {
+		cfg.CloudRemote = ""
+		if err := SaveConfig(cfg); err != nil {
+			return err
+		}
+	}
+	log("disconnected %s", provider)
+	return nil
+}

@@ -30,8 +30,23 @@ kit.  An uninitialised helper or configured remote failure exits nonzero.
 .B sync
 is an alias; the hourly user timer calls it.
 .TP
-.B status
-Show local snapshot count and the last remote attempt, success, or error.
+.BR status " [" \-\-json | \-\-porcelain ]
+Show local snapshot count and the last remote attempt, success, or error
+(or machine-readable JSON / key=value lines for the Preferences dialog).
+.TP
+.BI "set-target " "local|gdrive|dropbox|custom [REMOTE]"
+Set the backup destination in
+.IR ~/.config/xnote/cloud-backup.conf .
+.TP
+.BI "connect " "gdrive|dropbox"
+Authorize Google Drive or Dropbox in the browser through
+.B rclone
+and configure it as the active backup destination.
+.TP
+.BI "disconnect " "gdrive|dropbox"
+Remove the stored
+.B rclone
+remote for Google Drive or Dropbox and reset the target to local-only if active.
 .TP
 .B list
 List local snapshots.

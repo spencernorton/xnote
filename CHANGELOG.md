@@ -1,5 +1,19 @@
 # Changelog
 
+## 3.2.5 — 2026-10-27
+
+- Add a **Backup** page to XNote Preferences (`src/xpad-preferences.c`) for
+  selecting the backup destination (**Local Only**, **Google Drive**,
+  **Dropbox**, or **Custom Folder or Remote**), authorizing Google Drive or
+  Dropbox in the browser via `rclone`, setting up or unlocking end-to-end
+  encryption (Argon2id + XChaCha20-Poly1305) over stdin pipes with a copyable
+  one-time recovery code dialog, running **Back Up Now**, and toggling the
+  hourly `xnote-cloud-backup.timer` background unit.
+- Extend `xnote-cloud-backup` (`cloud-helper/`) with `status --json` /
+  `status --porcelain`, `set-target <local|gdrive|dropbox|custom>`,
+  `connect <gdrive|dropbox>`, and `disconnect <gdrive|dropbox>` commands plus
+  atomic `SaveConfig` persistence for `~/.config/xnote/cloud-backup.conf`.
+
 ## 3.2.4 — 2026-10-26
 
 - `xnote-cloud-backup` enforces a strict four-file encrypted remote kit gate
