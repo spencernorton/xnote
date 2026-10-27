@@ -91,6 +91,53 @@ func LoadConfig() (Config, error) {
 	return cfg, nil
 }
 
+// SaveConfig atomically writes cloud-backup.conf in configDir() with mode 0600.
+func SaveConfig(cfg Config) error {
+	if cfg.KeepSnapshots <= 0 {
+		cfg.KeepSnapshots = defaultConfig.KeepSnapshots
+	}
+	if cfg.CloudTimeoutSec <= 0 {
+		cfg.CloudTimeoutSec = defaultConfig.CloudTimeoutSec
+	}
+	cfg.CloudRemote = strings.TrimSpace(cfg.CloudRemote)
+	if cfg.CloudRemote != "" {
+		if _, err := parseRemoteTarget(cfg.CloudRemote); err != nil {
+			return err
+		}
+	}
+	cfg.CloudDevice = strings.TrimSpace(cfg.CloudDevice)
+	if cfg.CloudDevice != "" {
+		if err := validateRemoteComponent("cloud device name", cfg.CloudDevice); err != nil {
+			return err
+		}
+	}
+
+	dir := configDir()
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return fmt.Errorf("create config dir %s: %w", dir, err)
+	}
+	path := filepath.Join(dir, "cloud-backup.conf")
+	tmp := path + ".tmp"
+
+	var b strings.Builder
+	b.WriteString("# XNote encrypted cloud backup configuration\n")
+	fmt.Fprintf(&b, "KEEP_SNAPSHOTS=%d\n", cfg.KeepSnapshots)
+	fmt.Fprintf(&b, "CLOUD_REMOTE=%q\n", cfg.CloudRemote)
+	if cfg.CloudDevice != "" {
+		fmt.Fprintf(&b, "CLOUD_DEVICE=%q\n", cfg.CloudDevice)
+	}
+	fmt.Fprintf(&b, "CLOUD_TIMEOUT=%d\n", cfg.CloudTimeoutSec)
+
+	if err := os.WriteFile(tmp, []byte(b.String()), 0600); err != nil {
+		return fmt.Errorf("write temp config %s: %w", tmp, err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("replace config %s: %w", path, err)
+	}
+	return nil
+}
+
 // configDir returns ~/.config/xnote
 func configDir() string {
 	if d := os.Getenv("XDG_CONFIG_HOME"); d != "" {
