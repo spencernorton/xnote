@@ -7,7 +7,7 @@ import xml.etree.ElementTree as ET
 
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "3.2.5"
+VERSION = "3.2.6"
 GITHUB = "https://github.com/spencernorton/xnote"
 
 

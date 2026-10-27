@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.2.6 — 2026-10-27
+
+- Fix: at login, restored notes across workspaces no longer make the dock icon
+  bounce or jump across workspaces when clicked. `xpad_app_load_pads` now maps
+  saved notes with `gtk_widget_set_visible` instead of `gtk_window_present`,
+  `xpad_pad_show` no longer fires a redundant `gtk_window_present` (`xdg_activation_v1`)
+  inside the `"map"` signal handler, and `xnote.desktop` sets
+  `StartupNotify=false`. Interactive note creation and tray/menu selection
+  still present and focus the target note.
+
 ## 3.2.5 — 2026-10-27
 
 - Add a **Backup** page to XNote Preferences (`src/xpad-preferences.c`) for

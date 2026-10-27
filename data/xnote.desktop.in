@@ -10,7 +10,7 @@ Exec=xnote
 Terminal=false
 Icon=xnote
 
-StartupNotify=true
+StartupNotify=false
 StartupWMClass=xnote
 
 Type=Application
