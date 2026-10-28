@@ -1,0 +1,9 @@
+[Unit]
+Description=Verify the newest XNote backup still decrypts
+Documentation=man:xnote-cloud-backup(1)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/xnote-cloud-backup test-recovery
+Nice=10
+IOSchedulingClass=idle

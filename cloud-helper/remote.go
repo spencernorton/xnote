@@ -133,6 +133,9 @@ func runRemoteCommand(cfg Config, name string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeoutFor(cfg))
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
+	if name == "rclone" {
+		configureRcloneEnvironment(cmd, cfg)
+	}
 	out, err := cmd.CombinedOutput()
 	if ctx.Err() == context.DeadlineExceeded {
 		return "", fmt.Errorf("%s timed out after %s", name, timeoutFor(cfg))
@@ -217,10 +220,14 @@ func pathContains(parent, child string) bool {
 	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
 }
 
-// pushRecoveryKit uploads an already-validated kit without deleting or
-// overwriting any remote object. manifest.json is copied only after the payload
-// has been uploaded and verified.
 func pushRecoveryKit(cfg Config, kitDir, hostname string) error {
+	return pushRecoveryKitTo(cfg, cfg.CloudRemote, kitDir, hostname)
+}
+
+// pushRecoveryKitTo uploads an already-validated kit to one remote without
+// deleting or overwriting any remote object. manifest.json is copied only
+// after the payload has been uploaded and verified.
+func pushRecoveryKitTo(cfg Config, remote string, kitDir, hostname string) error {
 	manifest, err := validateRecoveryKit(kitDir)
 	if err != nil {
 		return fmt.Errorf("validate local recovery kit: %w", err)
@@ -231,7 +238,7 @@ func pushRecoveryKit(cfg Config, kitDir, hostname string) error {
 	if err := validateSnapshotID(manifest.SnapshotID); err != nil {
 		return err
 	}
-	target, err := parseRemoteTarget(cfg.CloudRemote)
+	target, err := parseRemoteTarget(remote)
 	if err != nil {
 		return err
 	}
@@ -492,7 +499,7 @@ func fetchRecoveryFile(cfg Config, target remoteTarget, sourceRoot, relativePath
 func rcloneCatToFile(cfg Config, source, dest string, maxBytes int64) error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeoutFor(cfg))
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "rclone", "cat", source)
+	cmd := newRcloneCommand(ctx, "cat", source)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	stdout, err := cmd.StdoutPipe()
@@ -561,13 +568,18 @@ func rcloneConfigPath() string {
 	return filepath.Join(os.Getenv("HOME"), ".config", "rclone", "rclone.conf")
 }
 
-// isRcloneRemoteConfigured checks whether the named section exists in rclone.conf
-// with the expected backend type and a non-empty token. Secret values are never
-// returned or logged.
+// isRcloneRemoteConfigured checks whether the named remote exists with the
+// expected backend type and a non-empty token. Secret values are never
+// returned or logged. Encrypted rclone configs cannot be parsed as text, so
+// those are asked through `rclone config show` (which honours
+// RCLONE_PASSWORD_COMMAND) instead of the raw file.
 func isRcloneRemoteConfigured(remoteName, expectedType string) bool {
 	data, err := os.ReadFile(rcloneConfigPath())
 	if err != nil {
 		return false
+	}
+	if strings.HasPrefix(string(data), "# Encrypted rclone configuration File") {
+		return rcloneRemoteConfiguredViaCLI(remoteName, expectedType)
 	}
 	var inSection, hasType, hasToken bool
 	targetHeader := "[" + remoteName + "]"
@@ -600,6 +612,35 @@ func isRcloneRemoteConfigured(remoteName, expectedType string) bool {
 		}
 	}
 	return inSection && hasType && hasToken
+}
+
+// rcloneRemoteConfiguredViaCLI validates a remote through the rclone CLI so
+// encrypted configs (which need RCLONE_PASSWORD_COMMAND) work. Only the keys
+// "type" and the presence of "token" are inspected; values are discarded.
+func rcloneRemoteConfiguredViaCLI(remoteName, expectedType string) bool {
+	if _, err := exec.LookPath("rclone"); err != nil {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	out, err := newRcloneCommand(ctx, "config", "show", remoteName).Output()
+	if err != nil {
+		return false
+	}
+	var hasType, hasToken bool
+	for _, rawLine := range strings.Split(string(out), "\n") {
+		k, v, ok := strings.Cut(strings.TrimSpace(rawLine), "=")
+		if !ok {
+			continue
+		}
+		switch strings.TrimSpace(k) {
+		case "type":
+			hasType = strings.TrimSpace(v) == expectedType
+		case "token":
+			hasToken = strings.TrimSpace(v) != ""
+		}
+	}
+	return hasType && hasToken
 }
 
 func classifyTargetMode(cloudRemote string) string {
@@ -680,7 +721,7 @@ func cmdConnect(args []string) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), oauthConnectTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "rclone", createArgs...)
+	cmd := newRcloneCommand(ctx, createArgs...)
 	out, err := cmd.CombinedOutput()
 	if ctx.Err() == context.DeadlineExceeded {
 		return fmt.Errorf("browser sign-in timed out after %s", oauthConnectTimeout)
@@ -722,7 +763,7 @@ func cmdDisconnect(args []string) error {
 	if _, err := exec.LookPath("rclone"); err == nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		cmd := exec.CommandContext(ctx, "rclone", "config", "delete", remoteName)
+		cmd := newRcloneCommand(ctx, "config", "delete", remoteName)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("rclone disconnect failed: %w: %s", err, strings.TrimSpace(string(out)))
 		}
@@ -740,4 +781,20 @@ func cmdDisconnect(args []string) error {
 	}
 	log("disconnected %s", provider)
 	return nil
+}
+
+// Configured credential commands survive GUI restarts and apply to every
+// provider operation, including token validation and scheduled uploads.
+func configureRcloneEnvironment(cmd *exec.Cmd, cfg Config) {
+	if os.Getenv("RCLONE_PASSWORD_COMMAND") != "" || cfg.RclonePasswordCommand == "" {
+		return
+	}
+	cmd.Env = append(os.Environ(), "RCLONE_PASSWORD_COMMAND="+cfg.RclonePasswordCommand)
+}
+func newRcloneCommand(ctx context.Context, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, "rclone", args...)
+	if cfg, err := LoadConfig(); err == nil {
+		configureRcloneEnvironment(cmd, cfg)
+	}
+	return cmd
 }

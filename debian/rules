@@ -29,8 +29,9 @@ override_dh_auto_build:
 override_dh_dwz:
 	dh_dwz -Xxnote-cloud-backup
 
-# Per-user units (the opt-in cloud-backup timer); installed from
-# debian/xnote.xnote-cloud-backup.user.{service,timer}. Users enable the timer
-# after initialising encrypted backup.
+# Per-user units (the opt-in cloud-backup timers); installed from
+# debian/xnote.xnote-cloud-backup*.user.{service,timer}. Users enable the
+# timers after initialising encrypted backup.
 override_dh_installsystemduser:
 	dh_installsystemduser --name=xnote-cloud-backup --no-enable
+	dh_installsystemduser --name=xnote-cloud-backup-test-recovery --no-enable

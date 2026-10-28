@@ -25,7 +25,9 @@ import (
 	"bytes"
 	"encoding/hex"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -107,4 +109,56 @@ func KeyringDelete() error {
 		return fmt.Errorf("secret-tool clear: %w\n%s", err, out)
 	}
 	return nil
+}
+
+// Clear the durable interlock only after the secret service returns this key.
+func cacheAndVerifyMaster(master []byte) error {
+	if err := syncRecoveryState(true); err != nil {
+		return err
+	}
+	if err := KeyringStore(master); err != nil {
+		return err
+	}
+	cached, err := KeyringLoad()
+	defer zero(cached)
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(cached, master) {
+		return fmt.Errorf("keyring readback does not match; run unlock")
+	}
+	if err := os.Remove(unlockRequiredPath()); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if err := syncDirectory(stateDir()); err != nil {
+		_ = requireVerifiedUnlock("Recovery unlock persistence failed.")
+		return err
+	}
+	return nil
+}
+
+func requireVerifiedUnlock(message string) error {
+	path := unlockRequiredPath()
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	if err != nil {
+		return err
+	}
+	_, writeErr := f.WriteString(message + "\n")
+	syncErr := f.Sync()
+	closeErr := f.Close()
+	if writeErr != nil {
+		return writeErr
+	}
+	if syncErr != nil {
+		return syncErr
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	d, err := os.Open(filepath.Dir(path))
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	return d.Sync()
 }

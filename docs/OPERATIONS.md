@@ -79,7 +79,10 @@ Configure access to the remote, then:
 
 ```bash
 xnote-cloud-backup import latest
+# Hybrid snapshots additionally need the separately exported recovery keys:
+xnote-cloud-backup import-keys /path/to/xnote-escrow-export
 xnote-cloud-backup unlock --recovery
+xnote-cloud-backup test-recovery
 # Close XNote before restoring a snapshot.
 xnote-cloud-backup restore latest
 ```
@@ -106,3 +109,7 @@ backup when testing rollback.
 Do not upload note directories, recovery codes, rclone configuration or
 complete logs to a public issue. Consult `man xnote-cloud-backup` for command
 semantics, snapshot retention and force-operation safeguards.
+
+Hybrid mode requires a recovery-key export before creating backups. Use Download Keys in Preferences and keep the exported directory off the device, separate from the recovery code. A successful local export is not proof that an external copy has been preserved.
+
+Key rotation creates fresh snapshot IDs for new cloud kits and preserves old local recovery state. A failed or interrupted keyring update leaves backups blocked until an explicit unlock succeeds. Old append-only cloud kits retain their original keys; keep the matching older escrow for any retained historical kits.

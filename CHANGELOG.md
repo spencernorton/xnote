@@ -1,8 +1,41 @@
 # Changelog
 
-## Unreleased
+## 3.3.2 — 2026-10-28
 
-- Keep tray menu rows and their action IDs cached when notes and available actions are unchanged. Opening the menu no longer recreates its rows progressively; real changes still retire stale IDs.
+- Keep unchanged tray menu rows cached so the menu opens completely instead of growing row by row.
+- Preserve PQ secrets when repairing missing public keys and reject mismatched pairs.
+- Add validated escrow-key import and an export requirement before hybrid backups.
+- Keep backups locked across interrupted import/rotation and failed keyring updates; verify and sync recovery state before unlocking.
+- Give rotated snapshots fresh cloud-kit identities and bind cloud receipts to ciphertext and destinations. Retry incomplete mirror delivery.
+- Use the actual Preferences parent window for key downloads, and create a fresh export folder for each download.
+
+## 3.3.1 — 2026-10-28
+
+- Fix Google Drive/Dropbox sign-in validation when the rclone configuration
+  file is encrypted: the helper now asks `rclone config show` (which honours
+  `RCLONE_PASSWORD_COMMAND`) instead of parsing the encrypted file as text,
+  which always reported a successful sign-in as missing.
+
+## 3.3.0 — 2026-10-28
+
+- Add post-quantum hybrid backups: Preferences gains an **Encryption
+  algorithm** picker (Classic Argon2id + XChaCha20-Poly1305, or Hybrid with
+  an ML-KEM-1024 envelope so new snapshots need both the master key and the
+  PQ secret). Classic snapshots stay readable in either mode. New helper
+  verbs: `set-crypto`, plus `pq-secret`/`pq-public` key files with a SHA-256
+  fingerprint in `status`.
+- Back up to two providers at once: `CLOUD_MIRROR` (Preferences: **Mirror
+  remote**) receives the same recovery kit as the primary target, and the
+  backup fails unless both pushes succeed.
+- Prove backups open: **Test Recovery** in Preferences (helper:
+  `test-recovery [--remote]`) decrypts and verifies the newest snapshot
+  without touching live notes, records the drill result, and a new monthly
+  `xnote-cloud-backup-test-recovery.timer` repeats it automatically.
+- Download and rotate keys from Preferences: **Download Keys…** writes an
+  escrow export (`export-keys`: keyfile + PQ keys + checksums, never a
+  plaintext master key); **Rotate Keys…** performs true master-key rotation
+  (`rotate-key`: every snapshot re-encrypted and verified, new recovery
+  code issued) instead of only rewrapping the passphrase.
 
 ## 3.2.6 — 2026-10-27
 

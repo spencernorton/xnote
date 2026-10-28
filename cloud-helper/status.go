@@ -3,24 +3,29 @@
 package main
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"time"
 )
 
 type RemoteStatus struct {
-	LastAttemptUTC        string `json:"last_attempt_utc,omitempty"`
-	LastAttemptSnapshotID string `json:"last_attempt_snapshot_id,omitempty"`
-	LastSuccessUTC        string `json:"last_success_utc,omitempty"`
-	LastSuccessSnapshotID string `json:"last_success_snapshot_id,omitempty"`
-	LastError             string `json:"last_error,omitempty"`
-	Device                string `json:"device,omitempty"`
+	SnapshotSHA256        string   `json:"snapshot_sha256,omitempty"`
+	Destinations          []string `json:"destinations,omitempty"`
+	LastAttemptUTC        string   `json:"last_attempt_utc,omitempty"`
+	LastAttemptSnapshotID string   `json:"last_attempt_snapshot_id,omitempty"`
+	LastSuccessUTC        string   `json:"last_success_utc,omitempty"`
+	LastSuccessSnapshotID string   `json:"last_success_snapshot_id,omitempty"`
+	LastError             string   `json:"last_error,omitempty"`
+	Device                string   `json:"device,omitempty"`
 }
 
 type StatusReport struct {
+	PQEscrowRequired      bool   `json:"pq_escrow_required"`
 	Initialised           bool   `json:"initialised"`
 	KeyCached             bool   `json:"key_cached"`
 	UnlockRequired        bool   `json:"unlock_required"`
@@ -28,6 +33,9 @@ type StatusReport struct {
 	HeadGeneration        uint64 `json:"head_generation"`
 	KeepSnapshots         int    `json:"keep_snapshots"`
 	CloudRemote           string `json:"cloud_remote"`
+	CloudMirror           string `json:"cloud_mirror"`
+	CryptoMode            string `json:"crypto_mode"`
+	PQFingerprint         string `json:"pq_fingerprint"`
 	CloudDevice           string `json:"cloud_device"`
 	TargetMode            string `json:"target_mode"`
 	GDriveConfigured      bool   `json:"gdrive_configured"`
@@ -37,6 +45,9 @@ type StatusReport struct {
 	LastSuccessUTC        string `json:"last_success_utc,omitempty"`
 	LastSuccessSnapshotID string `json:"last_success_snapshot_id,omitempty"`
 	LastError             string `json:"last_error,omitempty"`
+	LastDrillUTC          string `json:"last_drill_utc,omitempty"`
+	LastDrillResult       string `json:"last_drill_result,omitempty"`
+	LastDrillSnapshotID   string `json:"last_drill_snapshot_id,omitempty"`
 }
 
 func remoteStatusPath() string {
@@ -68,6 +79,16 @@ func recordRemoteAttempt(snapshotID, device string, pushErr error) error {
 	status.LastAttemptSnapshotID = snapshotID
 	status.Device = device
 	if pushErr == nil {
+		cfg, err := LoadConfig()
+		if err != nil {
+			return err
+		}
+		h, err := hashFile(SnapshotPath(snapshotID))
+		if err != nil {
+			return err
+		}
+		status.SnapshotSHA256 = hex.EncodeToString(h[:])
+		status.Destinations = cfg.allRemotes()
 		status.LastSuccessUTC = now
 		status.LastSuccessSnapshotID = snapshotID
 		status.LastError = ""
@@ -126,18 +147,26 @@ func buildStatusReport() (*StatusReport, error) {
 		host = hostname()
 	}
 
+	drill := loadDrillStatus()
 	rep := &StatusReport{
-		Initialised:       initOK,
-		KeyCached:         keyCached,
-		UnlockRequired:    unlockReq,
-		LocalSnapshots:    len(ids),
-		HeadGeneration:    headGen,
-		KeepSnapshots:     cfg.KeepSnapshots,
-		CloudRemote:       cfg.CloudRemote,
-		CloudDevice:       host,
-		TargetMode:        classifyTargetMode(cfg.CloudRemote),
-		GDriveConfigured:  isRcloneRemoteConfigured(defaultGDriveRemoteName, "drive") || isRcloneRemoteConfigured("gdrive", "drive"),
-		DropboxConfigured: isRcloneRemoteConfigured(defaultDropboxRemoteName, "dropbox") || isRcloneRemoteConfigured("dropbox", "dropbox"),
+		PQEscrowRequired:    cfg.CryptoMode == CryptoHybrid && pqEscrowRequired(),
+		Initialised:         initOK,
+		KeyCached:           keyCached,
+		UnlockRequired:      unlockReq,
+		LocalSnapshots:      len(ids),
+		HeadGeneration:      headGen,
+		KeepSnapshots:       cfg.KeepSnapshots,
+		CloudRemote:         cfg.CloudRemote,
+		CloudMirror:         cfg.CloudMirror,
+		CryptoMode:          cfg.CryptoMode,
+		PQFingerprint:       pqFingerprint(),
+		CloudDevice:         host,
+		TargetMode:          classifyTargetMode(cfg.CloudRemote),
+		GDriveConfigured:    isRcloneRemoteConfigured(defaultGDriveRemoteName, "drive") || isRcloneRemoteConfigured("gdrive", "drive"),
+		DropboxConfigured:   isRcloneRemoteConfigured(defaultDropboxRemoteName, "dropbox") || isRcloneRemoteConfigured("dropbox", "dropbox"),
+		LastDrillUTC:        drill.LastDrillUTC,
+		LastDrillResult:     drill.Result,
+		LastDrillSnapshotID: drill.SnapshotID,
 	}
 
 	if status, serr := loadRemoteStatus(); serr == nil && status != nil {
@@ -192,6 +221,13 @@ func cmdStatus(args ...string) error {
 		fmt.Printf("last_success_utc=%s\n", sanitizeSingleLine(rep.LastSuccessUTC))
 		fmt.Printf("last_success_snapshot_id=%s\n", sanitizeSingleLine(rep.LastSuccessSnapshotID))
 		fmt.Printf("last_error=%s\n", sanitizeSingleLine(rep.LastError))
+		fmt.Printf("cloud_mirror=%s\n", sanitizeSingleLine(rep.CloudMirror))
+		fmt.Printf("crypto_mode=%s\n", sanitizeSingleLine(rep.CryptoMode))
+		fmt.Printf("pq_escrow_required=%t\n", rep.PQEscrowRequired)
+		fmt.Printf("pq_fingerprint=%s\n", sanitizeSingleLine(rep.PQFingerprint))
+		fmt.Printf("last_drill_utc=%s\n", sanitizeSingleLine(rep.LastDrillUTC))
+		fmt.Printf("last_drill_result=%s\n", sanitizeSingleLine(rep.LastDrillResult))
+		fmt.Printf("last_drill_snapshot_id=%s\n", sanitizeSingleLine(rep.LastDrillSnapshotID))
 		return nil
 	}
 
@@ -241,4 +277,12 @@ func cmdStatus(args ...string) error {
 func hostname() string {
 	host, _ := os.Hostname()
 	return host
+}
+
+func remoteReceiptMatches(cfg Config, st *RemoteStatus, id, device string) bool {
+	if st.LastSuccessSnapshotID != id || st.Device != device || !reflect.DeepEqual(st.Destinations, cfg.allRemotes()) {
+		return false
+	}
+	h, err := hashFile(SnapshotPath(id))
+	return err == nil && st.SnapshotSHA256 == hex.EncodeToString(h[:])
 }

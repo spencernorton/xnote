@@ -98,14 +98,22 @@ struct XpadPreferencesPrivate
 	GtkWidget *backup_signin_button;     /* GtkButton */
 	GtkWidget *backup_disconnect_button; /* GtkButton */
 	GtkWidget *backup_custom_row;        /* AdwEntryRow */
+	GtkWidget *backup_mirror_row;         /* AdwEntryRow */
 	GtkWidget *backup_encryption_row;    /* AdwActionRow */
+	GtkWidget *backup_crypto_row;        /* AdwComboRow */
 	GtkWidget *backup_setup_button;      /* GtkButton */
 	GtkWidget *backup_unlock_button;     /* GtkButton */
 	GtkWidget *backup_rotate_button;     /* GtkButton */
+	GtkWidget *backup_recovery_row;      /* AdwActionRow */
+	GtkWidget *backup_export_button;     /* GtkButton */
+	GtkWidget *backup_rotatekey_button;  /* GtkButton */
+	GtkWidget *backup_test_row;          /* AdwActionRow */
+	GtkWidget *backup_test_button;       /* GtkButton */
 	GtkWidget *backup_status_row;        /* AdwActionRow */
 	GtkWidget *backup_now_button;        /* GtkButton */
 	GtkWidget *backup_timer_row;         /* AdwSwitchRow */
 	gulong backup_target_handler;
+	gulong backup_crypto_handler;
 	gulong backup_timer_handler;
 
 	/* Signal handler IDs for the special-case callbacks */
@@ -565,6 +573,7 @@ on_backup_status_finished (GObject *source_object, GAsyncResult *res, gpointer u
 	gboolean initialised = FALSE;
 	gboolean key_cached = FALSE;
 	gboolean unlock_required = FALSE;
+	gboolean pq_escrow_required = FALSE;
 	gint local_snapshots = 0;
 	guint64 head_generation = 0;
 	gchar *cloud_remote = g_strdup ("");
@@ -573,6 +582,11 @@ on_backup_status_finished (GObject *source_object, GAsyncResult *res, gpointer u
 	gboolean dropbox_configured = FALSE;
 	gchar *last_success_utc = g_strdup ("");
 	gchar *last_error = g_strdup ("");
+	gchar *crypto_mode = g_strdup ("classic");
+	gchar *pq_fingerprint = g_strdup ("");
+	gchar *cloud_mirror = g_strdup ("");
+	gchar *last_drill_utc = g_strdup ("");
+	gchar *last_drill_result = g_strdup ("");
 
 	gchar **lines = g_strsplit (stdout_buf, "\n", -1);
 	for (gsize i = 0; lines[i] != NULL; i++) {
@@ -589,6 +603,8 @@ on_backup_status_finished (GObject *source_object, GAsyncResult *res, gpointer u
 			key_cached = (g_strcmp0 (v, "true") == 0);
 		else if (g_strcmp0 (k, "unlock_required") == 0)
 			unlock_required = (g_strcmp0 (v, "true") == 0);
+		else if (g_strcmp0 (k, "pq_escrow_required") == 0)
+			pq_escrow_required = (g_strcmp0 (v, "true") == 0);
 		else if (g_strcmp0 (k, "local_snapshots") == 0)
 			local_snapshots = (gint) g_ascii_strtoll (v, NULL, 10);
 		else if (g_strcmp0 (k, "head_generation") == 0)
@@ -609,6 +625,21 @@ on_backup_status_finished (GObject *source_object, GAsyncResult *res, gpointer u
 		} else if (g_strcmp0 (k, "last_error") == 0) {
 			g_free (last_error);
 			last_error = g_strdup (v);
+		} else if (g_strcmp0 (k, "crypto_mode") == 0) {
+			g_free (crypto_mode);
+			crypto_mode = g_strdup (v);
+		} else if (g_strcmp0 (k, "pq_fingerprint") == 0) {
+			g_free (pq_fingerprint);
+			pq_fingerprint = g_strdup (v);
+		} else if (g_strcmp0 (k, "cloud_mirror") == 0) {
+			g_free (cloud_mirror);
+			cloud_mirror = g_strdup (v);
+		} else if (g_strcmp0 (k, "last_drill_utc") == 0) {
+			g_free (last_drill_utc);
+			last_drill_utc = g_strdup (v);
+		} else if (g_strcmp0 (k, "last_drill_result") == 0) {
+			g_free (last_drill_result);
+			last_drill_result = g_strdup (v);
 		}
 	}
 	g_strfreev (lines);
@@ -673,7 +704,47 @@ on_backup_status_finished (GObject *source_object, GAsyncResult *res, gpointer u
 	g_string_free (status_text, TRUE);
 
 	gtk_widget_set_sensitive (pref->priv->backup_now_button,
-		initialised && key_cached && !unlock_required && !pref->priv->backup_busy);
+		initialised && key_cached && !unlock_required && !pq_escrow_required && !pref->priv->backup_busy);
+
+	if (pref->priv->backup_crypto_row) {
+		adw_combo_row_set_selected (ADW_COMBO_ROW (pref->priv->backup_crypto_row),
+			g_strcmp0 (crypto_mode, "hybrid") == 0 ? 1 : 0);
+	}
+	if (pref->priv->backup_mirror_row && cloud_mirror)
+		gtk_editable_set_text (GTK_EDITABLE (pref->priv->backup_mirror_row), cloud_mirror);
+	if (pref->priv->backup_recovery_row) {
+		if (pq_fingerprint && *pq_fingerprint) {
+			gchar *pq_text = g_strdup_printf (_("Post-quantum key %s — keep the escrow export off this device"), pq_fingerprint);
+			adw_action_row_set_subtitle (ADW_ACTION_ROW (pref->priv->backup_recovery_row), pq_text);
+			g_free (pq_text);
+		} else {
+			adw_action_row_set_subtitle (ADW_ACTION_ROW (pref->priv->backup_recovery_row),
+				_("Download the escrow keys or rotate to a fresh master key"));
+		}
+	}
+	if (pref->priv->backup_test_row) {
+		if (last_drill_utc && *last_drill_utc) {
+			gchar *drill_text = g_strdup_printf (_("Last test: %s (%s)"), last_drill_result, last_drill_utc);
+			adw_action_row_set_subtitle (ADW_ACTION_ROW (pref->priv->backup_test_row), drill_text);
+			g_free (drill_text);
+		} else {
+			adw_action_row_set_subtitle (ADW_ACTION_ROW (pref->priv->backup_test_row),
+				_("Never tested — prove the newest backup opens"));
+		}
+	}
+	if (pq_escrow_required) {
+		adw_action_row_set_subtitle (ADW_ACTION_ROW (pref->priv->backup_recovery_row),
+			_("Download recovery keys and store them separately before hybrid backups can start."));
+		adw_action_row_set_subtitle (ADW_ACTION_ROW (pref->priv->backup_status_row),
+			_("Hybrid backup setup needs a recovery-key export."));
+	}
+	gboolean keys_ready = initialised && key_cached && !unlock_required;
+	if (pref->priv->backup_test_button)
+		gtk_widget_set_sensitive (pref->priv->backup_test_button, keys_ready && !pref->priv->backup_busy);
+	if (pref->priv->backup_export_button)
+		gtk_widget_set_sensitive (pref->priv->backup_export_button, initialised && !pref->priv->backup_busy);
+	if (pref->priv->backup_rotatekey_button)
+		gtk_widget_set_sensitive (pref->priv->backup_rotatekey_button, keys_ready && !pref->priv->backup_busy);
 
 	pref->priv->backup_updating_ui = FALSE;
 
@@ -681,6 +752,11 @@ on_backup_status_finished (GObject *source_object, GAsyncResult *res, gpointer u
 	g_free (target_mode);
 	g_free (last_success_utc);
 	g_free (last_error);
+	g_free (crypto_mode);
+	g_free (pq_fingerprint);
+	g_free (cloud_mirror);
+	g_free (last_drill_utc);
+	g_free (last_drill_result);
 	g_free (stdout_buf);
 	g_free (stderr_buf);
 }
@@ -960,6 +1036,241 @@ on_backup_timer_notify_active (GObject *object, GParamSpec *pspec, XpadPreferenc
 		g_object_unref (proc);
 	}
 	g_free (systemctl);
+}
+
+static void
+on_backup_crypto_changed (GObject *object, GParamSpec *pspec, XpadPreferences *pref)
+{
+	(void) pspec;
+	if (pref->priv->backup_updating_ui)
+		return;
+	const gchar *helper = xpad_backup_get_helper_path ();
+	if (!helper)
+		return;
+	guint selected = adw_combo_row_get_selected (ADW_COMBO_ROW (object));
+	const gchar *argv[] = { helper, "set-crypto", selected == 1 ? "hybrid" : "classic", NULL };
+	backup_run_helper_async (pref, argv, NULL, NULL, NULL);
+}
+
+static void
+on_backup_mirror_apply (AdwEntryRow *entry_row, XpadPreferences *pref)
+{
+	const gchar *helper = xpad_backup_get_helper_path ();
+	if (!helper)
+		return;
+	const gchar *text = gtk_editable_get_text (GTK_EDITABLE (entry_row));
+	const gchar *spec = (text && *text) ? text : "none";
+	const gchar *argv[] = { helper, "set-mirror", spec, NULL };
+	backup_run_helper_async (pref, argv, NULL, NULL, NULL);
+}
+
+static void
+on_backup_test_finished (GObject *source_object, GAsyncResult *res, gpointer user_data)
+{
+	GSubprocess *proc = G_SUBPROCESS (source_object);
+	gchar *stdout_buf = NULL;
+	gchar *stderr_buf = NULL;
+	GError *error = NULL;
+	if (!g_subprocess_communicate_utf8_finish (proc, res, &stdout_buf, &stderr_buf, &error)) {
+		if (g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED)) {
+			g_error_free (error);
+			return;
+		}
+		XpadPreferences *pref = XPAD_PREFERENCES (user_data);
+		pref->priv->backup_busy = FALSE;
+		show_backup_alert (pref, _("Test Recovery Failed"), error->message);
+		g_error_free (error);
+		backup_refresh_status (pref);
+		return;
+	}
+	XpadPreferences *pref = XPAD_PREFERENCES (user_data);
+	pref->priv->backup_busy = FALSE;
+	if (!g_subprocess_get_successful (proc)) {
+		const gchar *msg = (stderr_buf && *stderr_buf) ? g_strstrip (stderr_buf) : _("The backup helper returned an error.");
+		show_backup_alert (pref, _("Test Recovery Failed"), msg);
+	} else {
+		show_backup_alert (pref, _("Test Recovery Passed"),
+			_("The newest backup decrypts and verifies. Your live notes were not touched."));
+	}
+	g_free (stdout_buf);
+	g_free (stderr_buf);
+	backup_refresh_status (pref);
+}
+
+static void
+on_backup_test_clicked (GtkButton *button, XpadPreferences *pref)
+{
+	(void) button;
+	const gchar *helper = xpad_backup_get_helper_path ();
+	if (!helper || pref->priv->backup_busy)
+		return;
+	pref->priv->backup_busy = TRUE;
+	adw_action_row_set_subtitle (ADW_ACTION_ROW (pref->priv->backup_test_row),
+		_("Decrypting the newest backup to verify it…"));
+	const gchar *argv[] = { helper, "test-recovery", NULL };
+	backup_run_helper_async (pref, argv, NULL, on_backup_test_finished, pref);
+}
+
+static void
+on_export_folder_chosen (GObject *source_object, GAsyncResult *res, gpointer user_data)
+{
+	GtkFileDialog *dialog = GTK_FILE_DIALOG (source_object);
+	g_autoptr(GObject) keep_alive = G_OBJECT (user_data);
+	XpadPreferences *pref = XPAD_PREFERENCES (keep_alive);
+	GError *error = NULL;
+	GFile *folder = gtk_file_dialog_select_folder_finish (dialog, res, &error);
+	if (!folder) {
+		g_clear_error (&error);
+		return;
+	}
+	gchar *path = g_file_get_path (folder);
+	g_object_unref (folder);
+	if (!path)
+		return;
+	gchar *dest = g_build_filename (path, "xnote-escrow-export-XXXXXX", NULL);
+	g_free (path);
+	if (!g_mkdtemp_full (dest, 0700)) {
+		show_backup_alert (pref, _("Recovery Key Export Failed"), _("Could not create a new export folder at that location."));
+		g_free (dest);
+		return;
+	}
+	const gchar *helper = xpad_backup_get_helper_path ();
+	if (helper) {
+		pref->priv->backup_busy = TRUE;
+		const gchar *argv[] = { helper, "export-keys", dest, NULL };
+		backup_run_helper_async (pref, argv, NULL, NULL, NULL);
+	}
+	g_free (dest);
+}
+
+static void
+on_backup_export_clicked (GtkButton *button, XpadPreferences *pref)
+{
+	(void) button;
+	if (pref->priv->backup_busy)
+		return;
+	GtkFileDialog *dialog = gtk_file_dialog_new ();
+	gtk_file_dialog_set_title (dialog, _("Download Recovery Keys"));
+	GtkRoot *root = gtk_widget_get_root (GTK_WIDGET (pref));
+	GtkWindow *parent = GTK_IS_WINDOW (root) ? GTK_WINDOW (root) : NULL;
+	gtk_file_dialog_select_folder (dialog, parent, pref->priv->backup_cancellable,
+		on_export_folder_chosen, g_object_ref (pref));
+}
+
+typedef struct {
+	XpadPreferences *pref;
+	AdwDialog *dialog;
+	GtkWidget *pass_row;
+	GtkWidget *status_label;
+} RotateKeyDialogData;
+
+static void
+on_rotate_key_finished (GObject *source_object, GAsyncResult *res, gpointer user_data)
+{
+	GSubprocess *proc = G_SUBPROCESS (source_object);
+	gchar *stdout_buf = NULL;
+	gchar *stderr_buf = NULL;
+	GError *error = NULL;
+	if (!g_subprocess_communicate_utf8_finish (proc, res, &stdout_buf, &stderr_buf, &error)) {
+		if (g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED)) {
+			g_error_free (error);
+			return;
+		}
+		XpadPreferences *pref = XPAD_PREFERENCES (user_data);
+		pref->priv->backup_busy = FALSE;
+		show_backup_alert (pref, _("Key Rotation Failed"), error->message);
+		g_error_free (error);
+		backup_refresh_status (pref);
+		return;
+	}
+	XpadPreferences *pref = XPAD_PREFERENCES (user_data);
+	pref->priv->backup_busy = FALSE;
+	if (!g_subprocess_get_successful (proc)) {
+		const gchar *msg = (stderr_buf && *stderr_buf) ? g_strstrip (stderr_buf) : _("The backup helper returned an error.");
+		show_backup_alert (pref, _("Key Rotation Failed"), msg);
+	} else {
+		gchar *code = extract_recovery_code (stdout_buf);
+		if (code) {
+			show_recovery_code_dialog (pref, code);
+			secure_zero_string (code);
+			g_free (code);
+		}
+	}
+	secure_zero_string (stdout_buf);
+	g_free (stdout_buf);
+	g_free (stderr_buf);
+	backup_refresh_status (pref);
+}
+
+static void
+on_rotate_key_submit (GtkButton *button, RotateKeyDialogData *data)
+{
+	(void) button;
+	const gchar *cur = gtk_editable_get_text (GTK_EDITABLE (data->pass_row));
+	if (!cur || !*cur) {
+		gtk_label_set_text (GTK_LABEL (data->status_label), _("Enter your current passphrase."));
+		gtk_widget_set_visible (data->status_label, TRUE);
+		return;
+	}
+	const gchar *helper = xpad_backup_get_helper_path ();
+	if (!helper)
+		return;
+	gchar *stdin_payload = g_strdup_printf ("%s\n", cur);
+	gtk_editable_set_text (GTK_EDITABLE (data->pass_row), "");
+	adw_dialog_close (data->dialog);
+	data->pref->priv->backup_busy = TRUE;
+	const gchar *argv[] = { helper, "rotate-key", NULL };
+	backup_run_helper_async (data->pref, argv, stdin_payload, on_rotate_key_finished, data->pref);
+	secure_zero_string (stdin_payload);
+	g_free (stdin_payload);
+}
+
+static void
+on_backup_rotatekey_clicked (GtkButton *button, XpadPreferences *pref)
+{
+	(void) button;
+	if (pref->priv->backup_busy)
+		return;
+	AdwDialog *dlg = adw_dialog_new ();
+	adw_dialog_set_title (dlg, _("Rotate Encryption Keys"));
+	adw_dialog_set_content_width (dlg, 440);
+	AdwToolbarView *tv = ADW_TOOLBAR_VIEW (adw_toolbar_view_new ());
+	adw_toolbar_view_add_top_bar (tv, adw_header_bar_new ());
+	GtkWidget *vbox = gtk_box_new (GTK_ORIENTATION_VERTICAL, 12);
+	gtk_widget_set_margin_top (vbox, 12);
+	gtk_widget_set_margin_bottom (vbox, 16);
+	gtk_widget_set_margin_start (vbox, 16);
+	gtk_widget_set_margin_end (vbox, 16);
+	GtkWidget *desc = gtk_label_new (
+		_("This creates a fresh master key, re-encrypts every snapshot, and issues a new recovery code. "
+		  "Backups in the cloud under the old key must be replaced — run Back Up Now afterwards."));
+	gtk_label_set_wrap (GTK_LABEL (desc), TRUE);
+	gtk_label_set_xalign (GTK_LABEL (desc), 0.0f);
+	gtk_box_append (GTK_BOX (vbox), desc);
+	AdwPreferencesGroup *grp = ADW_PREFERENCES_GROUP (adw_preferences_group_new ());
+	GtkWidget *pass1 = adw_password_entry_row_new ();
+	adw_preferences_row_set_title (ADW_PREFERENCES_ROW (pass1), _("Current passphrase"));
+	adw_preferences_group_add (grp, pass1);
+	gtk_box_append (GTK_BOX (vbox), GTK_WIDGET (grp));
+	GtkWidget *err_label = gtk_label_new ("");
+	gtk_widget_add_css_class (err_label, "error");
+	gtk_widget_set_visible (err_label, FALSE);
+	gtk_box_append (GTK_BOX (vbox), err_label);
+	GtkWidget *submit = gtk_button_new_with_label (_("Rotate Keys"));
+	gtk_widget_add_css_class (submit, "suggested-action");
+	gtk_widget_add_css_class (submit, "pill");
+	gtk_widget_set_halign (submit, GTK_ALIGN_END);
+	gtk_box_append (GTK_BOX (vbox), submit);
+	adw_toolbar_view_set_content (tv, vbox);
+	adw_dialog_set_child (dlg, GTK_WIDGET (tv));
+	RotateKeyDialogData *data = g_new0 (RotateKeyDialogData, 1);
+	data->pref = pref;
+	data->dialog = dlg;
+	data->pass_row = pass1;
+	data->status_label = err_label;
+	g_signal_connect_data (submit, "clicked", G_CALLBACK (on_rotate_key_submit),
+		data, (GClosureNotify) g_free, 0);
+	adw_dialog_present (dlg, GTK_WIDGET (pref));
 }
 
 /* ---- Encryption Passphrase Dialogs (Init / Unlock / Rotate) ---- */
@@ -1597,9 +1908,27 @@ xpad_preferences_constructed (GObject *object)
 	gtk_widget_set_visible (pref->priv->backup_custom_row, FALSE);
 	adw_preferences_group_add (grp_backup_dest, pref->priv->backup_custom_row);
 
+	pref->priv->backup_mirror_row = adw_entry_row_new ();
+	adw_preferences_row_set_title (ADW_PREFERENCES_ROW (pref->priv->backup_mirror_row),
+		_("Mirror remote (optional, second provider)"));
+	adw_entry_row_set_show_apply_button (ADW_ENTRY_ROW (pref->priv->backup_mirror_row), TRUE);
+	adw_preferences_group_add (grp_backup_dest, pref->priv->backup_mirror_row);
+
 	AdwPreferencesGroup *grp_backup_enc = ADW_PREFERENCES_GROUP (adw_preferences_group_new ());
 	adw_preferences_group_set_title (grp_backup_enc, _("End-to-End Encryption"));
+	adw_preferences_group_set_description (grp_backup_enc,
+		_("Hybrid adds a post-quantum ML-KEM-1024 envelope: new backups then need both keys to open. Existing backups stay readable either way."));
 	adw_preferences_page_add (page_backup, grp_backup_enc);
+
+	const gchar *backup_crypto_items[] = {
+		N_("Classic — Argon2id + XChaCha20-Poly1305"),
+		N_("Hybrid — ML-KEM-1024 + Classic (post-quantum)")
+	};
+	GtkStringList *backup_crypto_list = make_string_list (backup_crypto_items, G_N_ELEMENTS (backup_crypto_items));
+	pref->priv->backup_crypto_row = adw_combo_row_new ();
+	adw_preferences_row_set_title (ADW_PREFERENCES_ROW (pref->priv->backup_crypto_row), _("Encryption algorithm"));
+	adw_combo_row_set_model (ADW_COMBO_ROW (pref->priv->backup_crypto_row), G_LIST_MODEL (backup_crypto_list));
+	adw_preferences_group_add (grp_backup_enc, pref->priv->backup_crypto_row);
 
 	pref->priv->backup_encryption_row = adw_action_row_new ();
 	adw_preferences_row_set_title (ADW_PREFERENCES_ROW (pref->priv->backup_encryption_row), _("Encryption key"));
@@ -1629,7 +1958,7 @@ xpad_preferences_constructed (GObject *object)
 	adw_preferences_group_add (grp_backup_enc, pref->priv->backup_encryption_row);
 
 	AdwPreferencesGroup *grp_backup_status = ADW_PREFERENCES_GROUP (adw_preferences_group_new ());
-	adw_preferences_group_set_title (grp_backup_status, _("Status & Schedule"));
+	adw_preferences_group_set_title (grp_backup_status, _("Status and Schedule"));
 	adw_preferences_page_add (page_backup, grp_backup_status);
 
 	pref->priv->backup_status_row = adw_action_row_new ();
@@ -1649,8 +1978,44 @@ xpad_preferences_constructed (GObject *object)
 		_("Runs xnote-cloud-backup.timer in the background"));
 	adw_preferences_group_add (grp_backup_status, pref->priv->backup_timer_row);
 
+	AdwPreferencesGroup *grp_backup_recovery = ADW_PREFERENCES_GROUP (adw_preferences_group_new ());
+	adw_preferences_group_set_title (grp_backup_recovery, _("Recovery and Testing"));
+	adw_preferences_group_set_description (grp_backup_recovery,
+		_("Prove the newest backup opens, download the escrow keys, or rotate to a fresh master key."));
+	adw_preferences_page_add (page_backup, grp_backup_recovery);
+
+	pref->priv->backup_recovery_row = adw_action_row_new ();
+	adw_preferences_row_set_title (ADW_PREFERENCES_ROW (pref->priv->backup_recovery_row), _("Recovery keys"));
+	adw_action_row_set_subtitle (ADW_ACTION_ROW (pref->priv->backup_recovery_row),
+		_("Download the escrow keys or rotate to a fresh master key"));
+	GtkWidget *recovery_btn_box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+	gtk_widget_set_valign (recovery_btn_box, GTK_ALIGN_CENTER);
+	pref->priv->backup_export_button = gtk_button_new_with_label (_("Download Keys…"));
+	gtk_widget_set_valign (pref->priv->backup_export_button, GTK_ALIGN_CENTER);
+	gtk_box_append (GTK_BOX (recovery_btn_box), pref->priv->backup_export_button);
+	pref->priv->backup_rotatekey_button = gtk_button_new_with_label (_("Rotate Keys…"));
+	gtk_widget_set_valign (pref->priv->backup_rotatekey_button, GTK_ALIGN_CENTER);
+	gtk_box_append (GTK_BOX (recovery_btn_box), pref->priv->backup_rotatekey_button);
+	adw_action_row_add_suffix (ADW_ACTION_ROW (pref->priv->backup_recovery_row), recovery_btn_box);
+	adw_preferences_group_add (grp_backup_recovery, pref->priv->backup_recovery_row);
+
+	pref->priv->backup_test_row = adw_action_row_new ();
+	adw_preferences_row_set_title (ADW_PREFERENCES_ROW (pref->priv->backup_test_row), _("Test recovery"));
+	adw_action_row_set_subtitle (ADW_ACTION_ROW (pref->priv->backup_test_row),
+		_("Never tested — prove the newest backup opens"));
+	pref->priv->backup_test_button = gtk_button_new_with_label (_("Test Recovery"));
+	gtk_widget_set_valign (pref->priv->backup_test_button, GTK_ALIGN_CENTER);
+	adw_action_row_add_suffix (ADW_ACTION_ROW (pref->priv->backup_test_row), pref->priv->backup_test_button);
+	adw_preferences_group_add (grp_backup_recovery, pref->priv->backup_test_row);
+
 	pref->priv->backup_target_handler = g_signal_connect (pref->priv->backup_target_row,
 		"notify::selected", G_CALLBACK (on_backup_target_changed), pref);
+	pref->priv->backup_crypto_handler = g_signal_connect (pref->priv->backup_crypto_row,
+		"notify::selected", G_CALLBACK (on_backup_crypto_changed), pref);
+	g_signal_connect (pref->priv->backup_mirror_row, "apply", G_CALLBACK (on_backup_mirror_apply), pref);
+	g_signal_connect (pref->priv->backup_test_button, "clicked", G_CALLBACK (on_backup_test_clicked), pref);
+	g_signal_connect (pref->priv->backup_export_button, "clicked", G_CALLBACK (on_backup_export_clicked), pref);
+	g_signal_connect (pref->priv->backup_rotatekey_button, "clicked", G_CALLBACK (on_backup_rotatekey_clicked), pref);
 	g_signal_connect (pref->priv->backup_signin_button, "clicked", G_CALLBACK (on_backup_signin_clicked), pref);
 	g_signal_connect (pref->priv->backup_disconnect_button, "clicked", G_CALLBACK (on_backup_disconnect_clicked), pref);
 	g_signal_connect (pref->priv->backup_custom_row, "apply", G_CALLBACK (on_backup_custom_apply), pref);

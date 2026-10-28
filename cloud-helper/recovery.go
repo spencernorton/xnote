@@ -322,6 +322,9 @@ func validateRecoveryPayload(kitDir string, manifest *RecoveryManifest) error {
 	if len(hdr.WrappedDEK) != wrappedMasterKeyLen {
 		return fmt.Errorf("recovery snapshot wrapped DEK has invalid length %d", len(hdr.WrappedDEK))
 	}
+	if hdr.PQ && len(hdr.KemCT) != mlkem1024CiphertextLen {
+		return fmt.Errorf("recovery snapshot KEM ciphertext has invalid length %d", len(hdr.KemCT))
+	}
 	if bodyN < 4+16 {
 		return fmt.Errorf("recovery snapshot ciphertext body is truncated (%d bytes)", bodyN)
 	}
@@ -467,13 +470,17 @@ func installRecoveryKit(kitDir string, force bool) (preservedAt string, err erro
 		return "", err
 	}
 
+	hadState := stateHasRecoveryData()
+	if err := requireVerifiedUnlock("Imported recovery state must be unlocked before backup."); err != nil {
+		return "", err
+	}
 	var preserveDir string
-	if stateHasRecoveryData() {
+	if hadState {
 		preserveDir, err = os.MkdirTemp(stateDir(), "pre-import-")
 		if err != nil {
 			return "", err
 		}
-		for _, item := range []string{"keyfile.json", "head.json", "snapshots", "import-needs-unlock"} {
+		for _, item := range []string{"keyfile.json", "head.json", "snapshots"} {
 			oldPath := filepath.Join(stateDir(), item)
 			if _, statErr := os.Lstat(oldPath); statErr == nil {
 				if renameErr := os.Rename(oldPath, filepath.Join(preserveDir, item)); renameErr != nil {
@@ -484,10 +491,17 @@ func installRecoveryKit(kitDir string, force bool) (preservedAt string, err erro
 		}
 	}
 
+	if preserveDir != "" {
+		if err := syncDirectory(preserveDir); err != nil {
+			return preserveDir, err
+		}
+		if err := syncDirectory(stateDir()); err != nil {
+			return preserveDir, err
+		}
+	}
 	rollback := func() {
 		os.Remove(keyfilePath())
 		os.Remove(headPath())
-		os.Remove(unlockRequiredPath())
 		os.RemoveAll(snapshotsDir())
 		if preserveDir != "" {
 			rollbackPreservedState(preserveDir)
@@ -506,15 +520,14 @@ func installRecoveryKit(kitDir string, force bool) (preservedAt string, err erro
 		rollback()
 		return "", fmt.Errorf("install imported head: %w", err)
 	}
-	if err := os.WriteFile(unlockRequiredPath(), []byte("Imported recovery state must be unlocked before backup.\n"), 0600); err != nil {
-		rollback()
-		return "", fmt.Errorf("mark imported state as requiring unlock: %w", err)
+	if err := syncRecoveryState(false); err != nil {
+		return preserveDir, fmt.Errorf("imported state remains locked: %w", err)
 	}
 	return preserveDir, nil
 }
 
 func rollbackPreservedState(preserveDir string) {
-	for _, item := range []string{"snapshots", "keyfile.json", "head.json", "import-needs-unlock"} {
+	for _, item := range []string{"snapshots", "keyfile.json", "head.json"} {
 		src := filepath.Join(preserveDir, item)
 		if _, err := os.Lstat(src); err == nil {
 			_ = os.Rename(src, filepath.Join(stateDir(), item))

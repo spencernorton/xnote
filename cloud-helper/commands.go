@@ -131,6 +131,9 @@ func runBackup(skipIfUnchanged bool) error {
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
+	if cfg.CryptoMode == CryptoHybrid && pqEscrowRequired() {
+		return fmt.Errorf("download recovery keys before creating hybrid backups; use Preferences > Backup > Download Keys")
+	}
 	configD := configDir()
 	if err := validateBackupSource(configD); err != nil {
 		return err
@@ -189,7 +192,7 @@ func runBackup(skipIfUnchanged bool) error {
 	if skipIfUnchanged && len(snapIDs) > 0 {
 		latestID := snapIDs[len(snapIDs)-1]
 		if snapshotMatchesTar(latestID, head, masterKey, tarBuf.Bytes()) {
-			if cfg.CloudRemote == "" {
+			if len(cfg.allRemotes()) == 0 {
 				log("notes unchanged since %s (gen=%d); skipping duplicate snapshot", latestID, head.Generation)
 				return nil
 			}
@@ -198,8 +201,7 @@ func runBackup(skipIfUnchanged bool) error {
 				return err
 			}
 			if status, err := loadRemoteStatus(); err == nil &&
-				status.LastSuccessSnapshotID == latestID &&
-				status.Device == host &&
+				remoteReceiptMatches(cfg, status, latestID, host) &&
 				status.LastError == "" {
 				log("notes unchanged since %s (gen=%d); local and cloud backup up to date", latestID, head.Generation)
 				return nil
@@ -208,8 +210,8 @@ func runBackup(skipIfUnchanged bool) error {
 		}
 	}
 
-	// Generate DEK
-	dek, wrappedDEK, err := generateDEK(masterKey)
+	// Generate DEK (hybrid adds the ML-KEM envelope; classic stays v1)
+	dek, wrappedDEK, kemCT, err := generateSnapshotDEK(masterKey, cfg.CryptoMode)
 	if err != nil {
 		return fmt.Errorf("generate DEK: %w", err)
 	}
@@ -219,6 +221,8 @@ func runBackup(skipIfUnchanged bool) error {
 		Generation:       nextGen,
 		ParentCipherHash: [32]byte{},
 		WrappedDEK:       wrappedDEK,
+		PQ:               cfg.CryptoMode == CryptoHybrid,
+		KemCT:            kemCT,
 	}
 	copy(hdr.ParentCipherHash[:], head.HeadHash)
 
@@ -302,7 +306,7 @@ func runBackup(skipIfUnchanged bool) error {
 	// Append-only off-box push. A configured remote is part of backup success:
 	// systemd must report a failure when the local snapshot is safe but the
 	// recovery kit did not reach Dropbox/iCloud/NAS.
-	if cfg.CloudRemote != "" {
+	if len(cfg.allRemotes()) > 0 {
 		host, err := remoteHost(cfg, hostname())
 		if err != nil {
 			return err
@@ -322,15 +326,22 @@ func pushSnapshotToRemote(cfg Config, snapID, host string) error {
 		return fmt.Errorf("local snapshot is safe, but recovery-kit staging failed: %w", err)
 	}
 	defer os.RemoveAll(kitDir)
-	pushErr := pushRecoveryKit(cfg, kitDir, host)
+	var pushErr error
+	for _, remote := range cfg.allRemotes() {
+		if err := pushRecoveryKitTo(cfg, remote, kitDir, host); err != nil {
+			pushErr = errors.Join(pushErr, fmt.Errorf("%s: %w", remote, err))
+		} else {
+			log("cloud recovery kit OK -> %s/%s/kits/%s", remote, host, snapID)
+		}
+	}
 	statusErr := recordRemoteAttempt(snapID, host, pushErr)
 	if pushErr != nil {
 		return fmt.Errorf("local snapshot is safe, but cloud push failed: %w", pushErr)
 	}
 	if statusErr != nil {
-		return fmt.Errorf("cloud push succeeded, but recording success status failed: %w", statusErr)
+		return statusErr
 	}
-	log("cloud recovery kit OK -> %s/%s/kits/%s", cfg.CloudRemote, host, snapID)
+
 	return nil
 }
 
@@ -352,7 +363,7 @@ func snapshotMatchesTar(snapID string, head *HeadState, masterKey, tarBytes []by
 	if err != nil || hdr.Generation != head.Generation {
 		return false
 	}
-	dek, err := unwrapDEK(masterKey, hdr.WrappedDEK)
+	dek, err := unwrapSnapshotDEK(masterKey, hdr)
 	if err != nil {
 		return false
 	}
@@ -450,7 +461,7 @@ func cmdRestore(args []string) error {
 	}
 
 	// Unwrap DEK
-	dek, err := unwrapDEK(masterKey, hdr.WrappedDEK)
+	dek, err := unwrapSnapshotDEK(masterKey, hdr)
 	if err != nil {
 		return fmt.Errorf("unwrap DEK: %w", err)
 	}
@@ -674,12 +685,10 @@ func cmdUnlock(args []string) error {
 		}
 	}
 
-	if err := KeyringStore(masterKey); err != nil {
-		return fmt.Errorf("keyring store: %w", err)
+	if err := cacheAndVerifyMaster(masterKey); err != nil {
+		return err
 	}
-	if err := os.Remove(unlockRequiredPath()); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("master_key cached, but could not clear imported-state unlock requirement: %w", err)
-	}
+
 	if useRecovery {
 		log("master_key cached in keyring (via recovery code)")
 	} else {
