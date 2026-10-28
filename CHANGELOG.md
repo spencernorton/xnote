@@ -1,5 +1,26 @@
 # Changelog
 
+## 3.3.0 — 2026-10-28
+
+- Add post-quantum hybrid backups: Preferences gains an **Encryption
+  algorithm** picker (Classic Argon2id + XChaCha20-Poly1305, or Hybrid with
+  an ML-KEM-1024 envelope so new snapshots need both the master key and the
+  PQ secret). Classic snapshots stay readable in either mode. New helper
+  verbs: `set-crypto`, plus `pq-secret`/`pq-public` key files with a SHA-256
+  fingerprint in `status`.
+- Back up to two providers at once: `CLOUD_MIRROR` (Preferences: **Mirror
+  remote**) receives the same recovery kit as the primary target, and the
+  backup fails unless both pushes succeed.
+- Prove backups open: **Test Recovery** in Preferences (helper:
+  `test-recovery [--remote]`) decrypts and verifies the newest snapshot
+  without touching live notes, records the drill result, and a new monthly
+  `xnote-cloud-backup-test-recovery.timer` repeats it automatically.
+- Download and rotate keys from Preferences: **Download Keys…** writes an
+  escrow export (`export-keys`: keyfile + PQ keys + checksums, never a
+  plaintext master key); **Rotate Keys…** performs true master-key rotation
+  (`rotate-key`: every snapshot re-encrypted and verified, new recovery
+  code issued) instead of only rewrapping the passphrase.
+
 ## 3.2.6 — 2026-10-27
 
 - Fix: at login, restored notes across workspaces no longer make the dock icon

@@ -1,0 +1,11 @@
+[Unit]
+Description=Monthly proof that XNote backups restore
+Documentation=man:xnote-cloud-backup(1)
+
+[Timer]
+OnCalendar=monthly
+RandomizedDelaySec=1day
+Persistent=true
+
+[Install]
+WantedBy=timers.target

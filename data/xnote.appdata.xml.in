@@ -64,6 +64,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="3.3.0" date="2026-10-28">
+      <description>
+        <p>Post-quantum hybrid backups (ML-KEM-1024), dual Drive/Dropbox targets, one-click test recovery with a monthly drill, escrow key download, and true master-key rotation in Preferences.</p>
+      </description>
+    </release>
     <release version="3.2.6" date="2026-10-27">
       <description>
         <p>Map restored notes quietly on startup without sending focus-stealing activation requests across workspaces, and disable desktop startup notification so the dock icon does not bounce or cycle workspaces on login.</p>

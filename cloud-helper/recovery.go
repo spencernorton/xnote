@@ -322,6 +322,9 @@ func validateRecoveryPayload(kitDir string, manifest *RecoveryManifest) error {
 	if len(hdr.WrappedDEK) != wrappedMasterKeyLen {
 		return fmt.Errorf("recovery snapshot wrapped DEK has invalid length %d", len(hdr.WrappedDEK))
 	}
+	if hdr.PQ && len(hdr.KemCT) != mlkem1024CiphertextLen {
+		return fmt.Errorf("recovery snapshot KEM ciphertext has invalid length %d", len(hdr.KemCT))
+	}
 	if bodyN < 4+16 {
 		return fmt.Errorf("recovery snapshot ciphertext body is truncated (%d bytes)", bodyN)
 	}

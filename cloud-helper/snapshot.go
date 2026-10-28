@@ -70,22 +70,30 @@ func SaveHead(h *HeadState) error {
 	return os.Rename(tmp, headPath())
 }
 
+const snapMagicV2 = "XNOTE-SNAP-2"
+
 // SnapshotHeader is the decoded in-memory representation of a snapshot header.
+// V2 (hybrid) headers insert kem_len + KEM ciphertext after the wrapped DEK.
 type SnapshotHeader struct {
 	Generation       uint64
 	ParentCipherHash [32]byte
 	WrappedDEK       []byte
 	BaseNonce        [24]byte
+	PQ               bool
+	KemCT            []byte
 	// HeaderBytes is the serialised header for use as AAD
 	HeaderBytes []byte
 }
 
 // WriteHeader serialises the header to w and returns the raw header bytes.
 func WriteHeader(w io.Writer, hdr *SnapshotHeader) ([]byte, error) {
-	// magic (12) + generation (8) + parent_cipher_hash (32) + wdek_len (2) + wdek (N) + base_nonce (24)
-	buf := make([]byte, 0, 12+8+32+2+len(hdr.WrappedDEK)+24)
+	magic := snapMagic
+	if hdr.PQ {
+		magic = snapMagicV2
+	}
+	buf := make([]byte, 0, 12+8+32+2+len(hdr.WrappedDEK)+2+len(hdr.KemCT)+24)
 
-	buf = append(buf, []byte(snapMagic)...)
+	buf = append(buf, []byte(magic)...)
 	var gen8 [8]byte
 	binary.BigEndian.PutUint64(gen8[:], hdr.Generation)
 	buf = append(buf, gen8[:]...)
@@ -94,6 +102,12 @@ func WriteHeader(w io.Writer, hdr *SnapshotHeader) ([]byte, error) {
 	binary.BigEndian.PutUint16(wdekLen[:], uint16(len(hdr.WrappedDEK)))
 	buf = append(buf, wdekLen[:]...)
 	buf = append(buf, hdr.WrappedDEK...)
+	if hdr.PQ {
+		var kemLen [2]byte
+		binary.BigEndian.PutUint16(kemLen[:], uint16(len(hdr.KemCT)))
+		buf = append(buf, kemLen[:]...)
+		buf = append(buf, hdr.KemCT...)
+	}
 	buf = append(buf, hdr.BaseNonce[:]...)
 
 	_, err := w.Write(buf)
@@ -106,7 +120,10 @@ func ReadHeader(r io.Reader) (*SnapshotHeader, error) {
 	if _, err := io.ReadFull(r, magicBuf); err != nil {
 		return nil, fmt.Errorf("read magic: %w", err)
 	}
-	if string(magicBuf) != snapMagic {
+	isPQ := false
+	if string(magicBuf) == snapMagicV2 {
+		isPQ = true
+	} else if string(magicBuf) != snapMagic {
 		return nil, fmt.Errorf("not an xnote snapshot (bad magic)")
 	}
 
@@ -134,6 +151,22 @@ func ReadHeader(r io.Reader) (*SnapshotHeader, error) {
 		return nil, fmt.Errorf("read wrapped_dek: %w", err)
 	}
 
+	var kemCT []byte
+	var kemLen [2]byte
+	if isPQ {
+		if _, err := io.ReadFull(r, kemLen[:]); err != nil {
+			return nil, fmt.Errorf("read kem_len: %w", err)
+		}
+		kemN := binary.BigEndian.Uint16(kemLen[:])
+		if int(kemN) != mlkem1024CiphertextLen {
+			return nil, fmt.Errorf("bad KEM ciphertext length %d", kemN)
+		}
+		kemCT = make([]byte, kemN)
+		if _, err := io.ReadFull(r, kemCT); err != nil {
+			return nil, fmt.Errorf("read kem_ct: %w", err)
+		}
+	}
+
 	var baseNonce [24]byte
 	if _, err := io.ReadFull(r, baseNonce[:]); err != nil {
 		return nil, fmt.Errorf("read base_nonce: %w", err)
@@ -144,15 +177,25 @@ func ReadHeader(r io.Reader) (*SnapshotHeader, error) {
 		ParentCipherHash: pch,
 		WrappedDEK:       wdek,
 		BaseNonce:        baseNonce,
+		PQ:               isPQ,
+		KemCT:            kemCT,
 	}
 
 	// Reconstruct header bytes for AAD (same encoding as WriteHeader)
-	buf := make([]byte, 0, 12+8+32+2+int(wdekN)+24)
-	buf = append(buf, []byte(snapMagic)...)
+	magic := snapMagic
+	if isPQ {
+		magic = snapMagicV2
+	}
+	buf := make([]byte, 0, 12+8+32+2+int(wdekN)+2+len(kemCT)+24)
+	buf = append(buf, []byte(magic)...)
 	buf = append(buf, gen8[:]...)
 	buf = append(buf, pch[:]...)
 	buf = append(buf, wdekLen[:]...)
 	buf = append(buf, wdek...)
+	if isPQ {
+		buf = append(buf, kemLen[:]...)
+		buf = append(buf, kemCT...)
+	}
 	buf = append(buf, baseNonce[:]...)
 	hdr.HeaderBytes = buf
 

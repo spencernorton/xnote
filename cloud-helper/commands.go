@@ -208,8 +208,8 @@ func runBackup(skipIfUnchanged bool) error {
 		}
 	}
 
-	// Generate DEK
-	dek, wrappedDEK, err := generateDEK(masterKey)
+	// Generate DEK (hybrid adds the ML-KEM envelope; classic stays v1)
+	dek, wrappedDEK, kemCT, err := generateSnapshotDEK(masterKey, cfg.CryptoMode)
 	if err != nil {
 		return fmt.Errorf("generate DEK: %w", err)
 	}
@@ -219,6 +219,8 @@ func runBackup(skipIfUnchanged bool) error {
 		Generation:       nextGen,
 		ParentCipherHash: [32]byte{},
 		WrappedDEK:       wrappedDEK,
+		PQ:               cfg.CryptoMode == CryptoHybrid,
+		KemCT:            kemCT,
 	}
 	copy(hdr.ParentCipherHash[:], head.HeadHash)
 
@@ -322,15 +324,17 @@ func pushSnapshotToRemote(cfg Config, snapID, host string) error {
 		return fmt.Errorf("local snapshot is safe, but recovery-kit staging failed: %w", err)
 	}
 	defer os.RemoveAll(kitDir)
-	pushErr := pushRecoveryKit(cfg, kitDir, host)
-	statusErr := recordRemoteAttempt(snapID, host, pushErr)
-	if pushErr != nil {
-		return fmt.Errorf("local snapshot is safe, but cloud push failed: %w", pushErr)
+	for _, remote := range cfg.allRemotes() {
+		pushErr := pushRecoveryKitTo(cfg, remote, kitDir, host)
+		statusErr := recordRemoteAttempt(snapID, host, pushErr)
+		if pushErr != nil {
+			return fmt.Errorf("local snapshot is safe, but cloud push failed: %w", pushErr)
+		}
+		if statusErr != nil {
+			return fmt.Errorf("cloud push succeeded, but recording success status failed: %w", statusErr)
+		}
+		log("cloud recovery kit OK -> %s/%s/kits/%s", remote, host, snapID)
 	}
-	if statusErr != nil {
-		return fmt.Errorf("cloud push succeeded, but recording success status failed: %w", statusErr)
-	}
-	log("cloud recovery kit OK -> %s/%s/kits/%s", cfg.CloudRemote, host, snapID)
 	return nil
 }
 
@@ -352,7 +356,7 @@ func snapshotMatchesTar(snapID string, head *HeadState, masterKey, tarBytes []by
 	if err != nil || hdr.Generation != head.Generation {
 		return false
 	}
-	dek, err := unwrapDEK(masterKey, hdr.WrappedDEK)
+	dek, err := unwrapSnapshotDEK(masterKey, hdr)
 	if err != nil {
 		return false
 	}
@@ -450,7 +454,7 @@ func cmdRestore(args []string) error {
 	}
 
 	// Unwrap DEK
-	dek, err := unwrapDEK(masterKey, hdr.WrappedDEK)
+	dek, err := unwrapSnapshotDEK(masterKey, hdr)
 	if err != nil {
 		return fmt.Errorf("unwrap DEK: %w", err)
 	}

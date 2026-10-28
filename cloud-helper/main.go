@@ -66,10 +66,24 @@ func main() {
 		err = runUnlock(os.Args[2:])
 	case "rotate-passphrase":
 		err = withStateLock(cmdRotatePassphrase)
+	case "rotate-key":
+		err = withStateLock(cmdRotateKey)
 	case "show-recovery":
 		err = cmdShowRecovery()
+	case "test-recovery":
+		args := os.Args[2:]
+		err = withStateLock(func() error { return cmdTestRecovery(args) })
+	case "export-keys":
+		args := os.Args[2:]
+		err = withStateLock(func() error { return cmdExportKeys(args) })
+	case "set-crypto":
+		args := os.Args[2:]
+		err = withStateLock(func() error { return cmdSetCrypto(args) })
+	case "set-mirror":
+		args := os.Args[2:]
+		err = withStateLock(func() error { return cmdSetMirror(args) })
 	default:
-		fmt.Fprintf(os.Stderr, "usage: xnote-cloud-backup [init|backup|sync|restore <id|latest>|list|remote-list|import <id|latest>|status [--json|--porcelain]|set-target <local|gdrive|dropbox|custom> [remote]|connect <gdrive|dropbox>|disconnect <gdrive|dropbox>|unlock|rotate-passphrase|show-recovery]\n")
+		fmt.Fprintf(os.Stderr, "usage: xnote-cloud-backup [init|backup|sync|restore <id|latest>|list|remote-list|import <id|latest>|status [--json|--porcelain]|set-target <local|gdrive|dropbox|custom> [remote]|set-mirror <remote|none>|set-crypto <classic|hybrid>|connect <gdrive|dropbox>|disconnect <gdrive|dropbox>|unlock|rotate-passphrase|rotate-key|show-recovery|test-recovery [latest|<id>] [--remote]|export-keys <dest-dir>]\n")
 		os.Exit(2)
 	}
 

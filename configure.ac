@@ -1,7 +1,7 @@
 # Process this file with autoconf to produce a configure script.
 
 # Sets up autoconf.
-AC_INIT([XNote],[3.2.6],[https://github.com/spencernorton/xnote/issues])
+AC_INIT([XNote],[3.3.0],[https://github.com/spencernorton/xnote/issues])
 AC_CONFIG_SRCDIR(src/xpad-app.c)
 AC_CONFIG_HEADERS([config.h:config.h.in])
 AC_CONFIG_MACRO_DIRS([m4])

@@ -80,6 +80,32 @@ only when the caller has independently ensured that no live writer can race.
 .B rotate-passphrase
 Rewrap the unchanged master key under a new passphrase.
 .TP
+.B rotate-key
+Create a fresh master key, re-encrypt and verify every snapshot under it,
+and print a new one-time recovery code. Cloud kits under the old key must be
+replaced with a fresh backup afterwards.
+.TP
+.BI "test-recovery " "[latest|ID] [--remote]"
+Decrypt and verify the newest snapshot (or the newest remote kit with
+.BR --remote )
+without touching live notes, and record the drill result for
+.BR status .
+The monthly user timer runs this automatically.
+.TP
+.BI "export-keys " "DEST-DIR"
+Write the escrow bundle (keyfile, PQ keys when present, checksums, restore
+notes) into an empty directory. It never contains a plaintext master key or
+the recovery code; store it off this machine.
+.TP
+.BI "set-crypto " "classic|hybrid"
+Select the encryption algorithm for new snapshots. Hybrid adds an ML-KEM-1024
+envelope so new snapshots need both the master key and the PQ secret;
+existing snapshots stay readable.
+.TP
+.BI "set-mirror " "REMOTE|none"
+Set or clear the second off-box target. When set, every backup must reach
+both remotes or it fails.
+.TP
 .B show-recovery
 Report whether a recovery slot exists and print a fingerprint of its salt.
 The recovery code itself was shown once at
@@ -105,6 +131,18 @@ local success.
 .B CLOUD_DEVICE
 Stable remote device directory (default: current hostname).  Set this to the
 original device name when recovering on a differently named replacement host.
+.TP
+.B CLOUD_MIRROR
+Optional second target with the same syntax as
+.BR CLOUD_REMOTE .
+Every backup must reach both targets or it fails.
+.TP
+.B CRYPTO_MODE
+.B classic
+(default) or
+.BR hybrid .
+Hybrid wraps new snapshots with ML-KEM-1024 in addition to the classic
+Argon2id + XChaCha20-Poly1305 protection.
 .TP
 .B CLOUD_TIMEOUT
 Maximum seconds for each external transfer command (default 120).

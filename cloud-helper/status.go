@@ -28,6 +28,9 @@ type StatusReport struct {
 	HeadGeneration        uint64 `json:"head_generation"`
 	KeepSnapshots         int    `json:"keep_snapshots"`
 	CloudRemote           string `json:"cloud_remote"`
+	CloudMirror           string `json:"cloud_mirror"`
+	CryptoMode            string `json:"crypto_mode"`
+	PQFingerprint         string `json:"pq_fingerprint"`
 	CloudDevice           string `json:"cloud_device"`
 	TargetMode            string `json:"target_mode"`
 	GDriveConfigured      bool   `json:"gdrive_configured"`
@@ -37,6 +40,9 @@ type StatusReport struct {
 	LastSuccessUTC        string `json:"last_success_utc,omitempty"`
 	LastSuccessSnapshotID string `json:"last_success_snapshot_id,omitempty"`
 	LastError             string `json:"last_error,omitempty"`
+	LastDrillUTC          string `json:"last_drill_utc,omitempty"`
+	LastDrillResult       string `json:"last_drill_result,omitempty"`
+	LastDrillSnapshotID   string `json:"last_drill_snapshot_id,omitempty"`
 }
 
 func remoteStatusPath() string {
@@ -126,6 +132,7 @@ func buildStatusReport() (*StatusReport, error) {
 		host = hostname()
 	}
 
+	drill := loadDrillStatus()
 	rep := &StatusReport{
 		Initialised:       initOK,
 		KeyCached:         keyCached,
@@ -134,10 +141,16 @@ func buildStatusReport() (*StatusReport, error) {
 		HeadGeneration:    headGen,
 		KeepSnapshots:     cfg.KeepSnapshots,
 		CloudRemote:       cfg.CloudRemote,
+		CloudMirror:       cfg.CloudMirror,
+		CryptoMode:        cfg.CryptoMode,
+		PQFingerprint:     pqFingerprint(),
 		CloudDevice:       host,
 		TargetMode:        classifyTargetMode(cfg.CloudRemote),
 		GDriveConfigured:  isRcloneRemoteConfigured(defaultGDriveRemoteName, "drive") || isRcloneRemoteConfigured("gdrive", "drive"),
 		DropboxConfigured: isRcloneRemoteConfigured(defaultDropboxRemoteName, "dropbox") || isRcloneRemoteConfigured("dropbox", "dropbox"),
+		LastDrillUTC:      drill.LastDrillUTC,
+		LastDrillResult:   drill.Result,
+		LastDrillSnapshotID: drill.SnapshotID,
 	}
 
 	if status, serr := loadRemoteStatus(); serr == nil && status != nil {
@@ -192,6 +205,12 @@ func cmdStatus(args ...string) error {
 		fmt.Printf("last_success_utc=%s\n", sanitizeSingleLine(rep.LastSuccessUTC))
 		fmt.Printf("last_success_snapshot_id=%s\n", sanitizeSingleLine(rep.LastSuccessSnapshotID))
 		fmt.Printf("last_error=%s\n", sanitizeSingleLine(rep.LastError))
+		fmt.Printf("cloud_mirror=%s\n", sanitizeSingleLine(rep.CloudMirror))
+		fmt.Printf("crypto_mode=%s\n", sanitizeSingleLine(rep.CryptoMode))
+		fmt.Printf("pq_fingerprint=%s\n", sanitizeSingleLine(rep.PQFingerprint))
+		fmt.Printf("last_drill_utc=%s\n", sanitizeSingleLine(rep.LastDrillUTC))
+		fmt.Printf("last_drill_result=%s\n", sanitizeSingleLine(rep.LastDrillResult))
+		fmt.Printf("last_drill_snapshot_id=%s\n", sanitizeSingleLine(rep.LastDrillSnapshotID))
 		return nil
 	}
 

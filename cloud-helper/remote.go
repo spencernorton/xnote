@@ -217,10 +217,14 @@ func pathContains(parent, child string) bool {
 	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
 }
 
-// pushRecoveryKit uploads an already-validated kit without deleting or
-// overwriting any remote object. manifest.json is copied only after the payload
-// has been uploaded and verified.
 func pushRecoveryKit(cfg Config, kitDir, hostname string) error {
+	return pushRecoveryKitTo(cfg, cfg.CloudRemote, kitDir, hostname)
+}
+
+// pushRecoveryKitTo uploads an already-validated kit to one remote without
+// deleting or overwriting any remote object. manifest.json is copied only
+// after the payload has been uploaded and verified.
+func pushRecoveryKitTo(cfg Config, remote string, kitDir, hostname string) error {
 	manifest, err := validateRecoveryKit(kitDir)
 	if err != nil {
 		return fmt.Errorf("validate local recovery kit: %w", err)
@@ -231,7 +235,7 @@ func pushRecoveryKit(cfg Config, kitDir, hostname string) error {
 	if err := validateSnapshotID(manifest.SnapshotID); err != nil {
 		return err
 	}
-	target, err := parseRemoteTarget(cfg.CloudRemote)
+	target, err := parseRemoteTarget(remote)
 	if err != nil {
 		return err
 	}
