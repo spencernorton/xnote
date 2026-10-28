@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.3.1 — 2026-10-28
+
+- Fix Google Drive/Dropbox sign-in validation when the rclone configuration
+  file is encrypted: the helper now asks `rclone config show` (which honours
+  `RCLONE_PASSWORD_COMMAND`) instead of parsing the encrypted file as text,
+  which always reported a successful sign-in as missing.
+
 ## 3.3.0 — 2026-10-28
 
 - Add post-quantum hybrid backups: Preferences gains an **Encryption

@@ -64,6 +64,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="3.3.1" date="2026-10-28">
+      <description>
+        <p>Fix Google Drive sign-in validation with encrypted rclone configs.</p>
+      </description>
+    </release>
     <release version="3.3.0" date="2026-10-28">
       <description>
         <p>Post-quantum hybrid backups (ML-KEM-1024), dual Drive/Dropbox targets, one-click test recovery with a monthly drill, escrow key download, and true master-key rotation in Preferences.</p>

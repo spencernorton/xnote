@@ -565,13 +565,18 @@ func rcloneConfigPath() string {
 	return filepath.Join(os.Getenv("HOME"), ".config", "rclone", "rclone.conf")
 }
 
-// isRcloneRemoteConfigured checks whether the named section exists in rclone.conf
-// with the expected backend type and a non-empty token. Secret values are never
-// returned or logged.
+// isRcloneRemoteConfigured checks whether the named remote exists with the
+// expected backend type and a non-empty token. Secret values are never
+// returned or logged. Encrypted rclone configs cannot be parsed as text, so
+// those are asked through `rclone config show` (which honours
+// RCLONE_PASSWORD_COMMAND) instead of the raw file.
 func isRcloneRemoteConfigured(remoteName, expectedType string) bool {
 	data, err := os.ReadFile(rcloneConfigPath())
 	if err != nil {
 		return false
+	}
+	if strings.HasPrefix(string(data), "# Encrypted rclone configuration File") {
+		return rcloneRemoteConfiguredViaCLI(remoteName, expectedType)
 	}
 	var inSection, hasType, hasToken bool
 	targetHeader := "[" + remoteName + "]"
@@ -604,6 +609,35 @@ func isRcloneRemoteConfigured(remoteName, expectedType string) bool {
 		}
 	}
 	return inSection && hasType && hasToken
+}
+
+// rcloneRemoteConfiguredViaCLI validates a remote through the rclone CLI so
+// encrypted configs (which need RCLONE_PASSWORD_COMMAND) work. Only the keys
+// "type" and the presence of "token" are inspected; values are discarded.
+func rcloneRemoteConfiguredViaCLI(remoteName, expectedType string) bool {
+	if _, err := exec.LookPath("rclone"); err != nil {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "rclone", "config", "show", remoteName).Output()
+	if err != nil {
+		return false
+	}
+	var hasType, hasToken bool
+	for _, rawLine := range strings.Split(string(out), "\n") {
+		k, v, ok := strings.Cut(strings.TrimSpace(rawLine), "=")
+		if !ok {
+			continue
+		}
+		switch strings.TrimSpace(k) {
+		case "type":
+			hasType = strings.TrimSpace(v) == expectedType
+		case "token":
+			hasToken = strings.TrimSpace(v) != ""
+		}
+	}
+	return hasType && hasToken
 }
 
 func classifyTargetMode(cloudRemote string) string {

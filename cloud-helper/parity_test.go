@@ -168,6 +168,37 @@ func TestHybridSnapshotFileDecryptsAndTamperFails(t *testing.T) {
 	}
 }
 
+func TestEncryptedRcloneConfigViaCLI(t *testing.T) {
+	cfgHome, _ := setupScratchHome(t)
+	home := filepath.Dir(filepath.Dir(cfgHome))
+	confDir := filepath.Join(home, "config", "rclone")
+	if err := os.MkdirAll(confDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(confDir, "rclone.conf"),
+		[]byte("# Encrypted rclone configuration File\n\nRCLONE_ENCRYPT_V0:\nAAAA\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	binDir := filepath.Join(home, "fakebin")
+	if err := os.MkdirAll(binDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	script := "#!/bin/sh\nif [ \"$1\" = \"config\" ] && [ \"$2\" = \"show\" ] && [ \"$3\" = \"xnote-gdrive\" ]; then\n  printf 'type = drive\\ntoken = {\\\"x\\\":1}\\n'\n  exit 0\nfi\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(binDir, "rclone"), []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+	if !isRcloneRemoteConfigured("xnote-gdrive", "drive") {
+		t.Fatal("encrypted config with valid CLI remote must be configured")
+	}
+	if isRcloneRemoteConfigured("xnote-dropbox", "dropbox") {
+		t.Fatal("missing remote must not be configured")
+	}
+	if isRcloneRemoteConfigured("xnote-gdrive", "dropbox") {
+		t.Fatal("wrong backend type must not be configured")
+	}
+}
+
 func TestConfigCryptoAndMirror(t *testing.T) {
 	_, _ = setupScratchHome(t)
 	cfg := Config{KeepSnapshots: 60, CloudRemote: "/tmp/primary-xnote", CloudMirror: "/tmp/mirror-xnote", CloudTimeoutSec: 120, CryptoMode: CryptoHybrid}
