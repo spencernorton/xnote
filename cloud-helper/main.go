@@ -73,6 +73,9 @@ func main() {
 	case "test-recovery":
 		args := os.Args[2:]
 		err = withStateLock(func() error { return cmdTestRecovery(args) })
+	case "import-keys":
+		args := os.Args[2:]
+		err = withStateLock(func() error { return cmdImportKeys(args) })
 	case "export-keys":
 		args := os.Args[2:]
 		err = withStateLock(func() error { return cmdExportKeys(args) })

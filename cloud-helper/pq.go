@@ -9,6 +9,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/mlkem"
 	"crypto/sha256"
 	"encoding/hex"
@@ -16,6 +17,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"golang.org/x/crypto/hkdf"
 )
@@ -36,11 +38,97 @@ func pqKeysExist() bool {
 	return err1 == nil && err2 == nil
 }
 
-// pqEnsureKeys generates the ML-KEM-1024 keypair if missing (idempotent).
-func pqEnsureKeys() error {
-	if pqKeysExist() {
-		_, err := pqLoadSecret()
+// pqKeyPresent distinguishes absence from inaccessible or unsafe key files.
+func pqKeyPresent(path string) (bool, error) {
+	info, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if !info.Mode().IsRegular() {
+		return false, fmt.Errorf("PQ key %s is not a regular file", path)
+	}
+	return true, nil
+}
+
+// pqWriteNewKey never truncates existing key material, including on repair.
+// A failed public write leaves the secret available for a later repair.
+func pqWriteNewKey(path string, data []byte) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
 		return err
+	}
+	_, writeErr := f.Write(data)
+	syncErr := f.Sync()
+	closeErr := f.Close()
+	if writeErr != nil {
+		return writeErr
+	}
+	if syncErr != nil {
+		return syncErr
+	}
+	return closeErr
+}
+
+// pqEnsureKeys repairs only a missing public key. A surviving secret is never
+// replaced; losing it requires recovery from escrow, not a new identity.
+// Callers hold the exclusive state lock.
+func pqEnsureKeys() error {
+	secret, err := pqKeyPresent(pqSecretPath())
+	if err != nil {
+		return err
+	}
+	public, err := pqKeyPresent(pqPublicPath())
+	if err != nil {
+		return err
+	}
+	if secret {
+		dk, err := pqLoadSecret()
+		if err != nil {
+			return err
+		}
+		if public {
+			_, err := pqLoadPublic() // Also proves that the existing pair matches.
+			return err
+		}
+		if err := pqWriteNewKey(pqPublicPath(), dk.EncapsulationKey().Bytes()); err != nil {
+			return fmt.Errorf("repair PQ public: %w", err)
+		}
+		return nil
+	}
+	if public {
+		return fmt.Errorf("PQ secret missing; restore it from escrow (existing public key preserved)")
+	}
+	// Both keys are absent. Do not silently initialize over hybrid history.
+	entries, err := os.ReadDir(snapshotsDir())
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("inspect snapshots before PQ initialization: %w", err)
+	}
+	for _, entry := range entries {
+		if !strings.HasSuffix(entry.Name(), ".xsnap") {
+			continue
+		}
+		path := filepath.Join(snapshotsDir(), entry.Name())
+		if err := requireRegularFile(path); err != nil {
+			return err
+		}
+		f, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		hdr, headerErr := ReadHeader(f)
+		closeErr := f.Close()
+		if headerErr != nil {
+			return fmt.Errorf("inspect snapshot %s before PQ initialization: %w", entry.Name(), headerErr)
+		}
+		if closeErr != nil {
+			return closeErr
+		}
+		if hdr.PQ {
+			return fmt.Errorf("PQ keys missing but hybrid snapshot %s exists; restore keys from escrow", entry.Name())
+		}
 	}
 	if err := os.MkdirAll(stateDir(), 0700); err != nil {
 		return fmt.Errorf("create state dir: %w", err)
@@ -49,10 +137,12 @@ func pqEnsureKeys() error {
 	if err != nil {
 		return fmt.Errorf("generate ML-KEM-1024 key: %w", err)
 	}
-	if err := os.WriteFile(pqSecretPath(), dk.Bytes(), 0600); err != nil {
+	seed := dk.Bytes()
+	defer zero(seed)
+	if err := pqWriteNewKey(pqSecretPath(), seed); err != nil {
 		return fmt.Errorf("write PQ secret: %w", err)
 	}
-	if err := os.WriteFile(pqPublicPath(), dk.EncapsulationKey().Bytes(), 0600); err != nil {
+	if err := pqWriteNewKey(pqPublicPath(), dk.EncapsulationKey().Bytes()); err != nil {
 		return fmt.Errorf("write PQ public: %w", err)
 	}
 	log("PQ key generated (ML-KEM-1024, fingerprint %s)", pqFingerprint())
@@ -60,10 +150,14 @@ func pqEnsureKeys() error {
 }
 
 func pqLoadSecret() (*mlkem.DecapsulationKey1024, error) {
+	if _, err := pqKeyPresent(pqSecretPath()); err != nil {
+		return nil, err
+	}
 	seed, err := os.ReadFile(pqSecretPath())
 	if err != nil {
 		return nil, fmt.Errorf("PQ secret missing (hybrid snapshots need it; restore it from your escrow export): %w", err)
 	}
+	defer zero(seed)
 	if len(seed) != mlkem1024SeedLen {
 		return nil, fmt.Errorf("PQ secret has wrong length %d", len(seed))
 	}
@@ -75,6 +169,9 @@ func pqLoadSecret() (*mlkem.DecapsulationKey1024, error) {
 }
 
 func pqLoadPublic() (*mlkem.EncapsulationKey1024, error) {
+	if _, err := pqKeyPresent(pqPublicPath()); err != nil {
+		return nil, err
+	}
 	raw, err := os.ReadFile(pqPublicPath())
 	if err != nil {
 		return nil, fmt.Errorf("PQ public key missing; run 'set-crypto hybrid' first: %w", err)
@@ -85,6 +182,13 @@ func pqLoadPublic() (*mlkem.EncapsulationKey1024, error) {
 	ek, err := mlkem.NewEncapsulationKey1024(raw)
 	if err != nil {
 		return nil, fmt.Errorf("load PQ public: %w", err)
+	}
+	dk, err := pqLoadSecret()
+	if err != nil {
+		return nil, err
+	}
+	if !bytes.Equal(raw, dk.EncapsulationKey().Bytes()) {
+		return nil, fmt.Errorf("PQ public key does not match the preserved secret; refusing hybrid encryption")
 	}
 	return ek, nil
 }

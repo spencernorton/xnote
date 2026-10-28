@@ -64,6 +64,9 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="3.3.2" date="2026-10-28">
+      <description><p>Keep tray menus responsive and make hybrid-key escrow, recovery and key rotation fail safely across interrupted operations.</p></description>
+    </release>
     <release version="3.3.1" date="2026-10-28">
       <description>
         <p>Fix Google Drive sign-in validation with encrypted rclone configs.</p>

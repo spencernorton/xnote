@@ -106,15 +106,7 @@ func SaveKeyfile(kf *Keyfile) error {
 	if err != nil {
 		return fmt.Errorf("marshal keyfile: %w", err)
 	}
-	// Write atomically via tmp file
-	tmp := keyfilePath() + ".tmp"
-	if err := os.WriteFile(tmp, data, 0600); err != nil {
-		return fmt.Errorf("write keyfile tmp: %w", err)
-	}
-	if err := os.Rename(tmp, keyfilePath()); err != nil {
-		return fmt.Errorf("rename keyfile: %w", err)
-	}
-	return nil
+	return writeRecoveryFile(keyfilePath(), data)
 }
 
 // UnwrapMasterKeyFromPassphrase derives KEK from passphrase and unwraps master_key.

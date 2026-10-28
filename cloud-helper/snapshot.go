@@ -63,11 +63,7 @@ func SaveHead(h *HeadState) error {
 	if err != nil {
 		return err
 	}
-	tmp := headPath() + ".tmp"
-	if err := os.WriteFile(tmp, data, 0600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, headPath())
+	return writeRecoveryFile(headPath(), data)
 }
 
 const snapMagicV2 = "XNOTE-SNAP-2"

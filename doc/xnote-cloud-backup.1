@@ -92,6 +92,11 @@ without touching live notes, and record the drill result for
 .BR status .
 The monthly user timer runs this automatically.
 .TP
+.BI "import-keys " "ESCROW-DIR"
+Install the separately held escrow keys on a replacement device after
+importing its cloud recovery kit. Conflicting active PQ keys are refused.
+Unlock with the recovery code, run test-recovery, then restore.
+.TP
 .BI "export-keys " "DEST-DIR"
 Write the escrow bundle (keyfile, PQ keys when present, checksums, restore
 notes) into an empty directory. It never contains a plaintext master key or

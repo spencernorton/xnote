@@ -227,6 +227,13 @@ func cmdExportKeys(args []string) error {
 	if err := copyRegularFile(keyfilePath(), filepath.Join(dest, "keyfile.json")); err != nil {
 		return err
 	}
+	_, secretErr := os.Lstat(pqSecretPath())
+	_, publicErr := os.Lstat(pqPublicPath())
+	if secretErr == nil || publicErr == nil {
+		if err := pqEnsureKeys(); err != nil {
+			return err
+		}
+	}
 	hasPQ := pqKeysExist()
 	if hasPQ {
 		if err := copyRegularFile(pqSecretPath(), filepath.Join(dest, "pq-secret")); err != nil {
@@ -244,7 +251,11 @@ func cmdExportKeys(args []string) error {
 		readme += fmt.Sprintf("PQ fingerprint: %s (ML-KEM-1024). Hybrid snapshots need pq-secret plus the master key.\n", pqFingerprint())
 	}
 	readme += fmt.Sprintf("Crypto mode at export: %s\n", cfg.CryptoMode) +
-		"Restore: install XNote, import the newest recovery kit, then unlock and restore.\n" +
+		"Restore on an empty device: install XNote and configure its backup target.\n" +
+		"Run: xnote-cloud-backup import latest\n" +
+		"Run: xnote-cloud-backup import-keys /path/to/this/escrow\n" +
+		"Run: xnote-cloud-backup unlock --recovery (enter your separately saved recovery code)\n" +
+		"Run: xnote-cloud-backup test-recovery, then close XNote and run restore latest.\n" +
 		"This export never contains a plaintext master key or your recovery code.\n"
 	if err := os.WriteFile(filepath.Join(dest, "README.txt"), []byte(readme), 0600); err != nil {
 		return err
@@ -263,6 +274,11 @@ func cmdExportKeys(args []string) error {
 	}
 	if err := os.WriteFile(filepath.Join(dest, "SHA256SUMS"), []byte(sums.String()), 0600); err != nil {
 		return err
+	}
+	if hasPQ {
+		if err := os.WriteFile(escrowReceiptPath(), []byte(pqFingerprint()), 0600); err != nil {
+			return err
+		}
 	}
 	log("escrow export written to %s (store it off this machine)", dest)
 	return nil
@@ -373,7 +389,16 @@ func cmdRotateKey() error {
 	var parent [32]byte
 	var lastGen uint64
 	for _, id := range ids {
-		tarBytes, oldHdr, derr := decryptSnapshotBytes(SnapshotPath(id), oldMaster)
+		gen, err := snapshotGenerationFromID(id)
+		if err != nil {
+			return err
+		}
+		if gen > lastGen {
+			lastGen = gen
+		}
+	}
+	for _, id := range ids {
+		tarBytes, _, derr := decryptSnapshotBytes(SnapshotPath(id), oldMaster)
 		if derr != nil {
 			return fmt.Errorf("rotate: decrypt %s: %w", id, derr)
 		}
@@ -381,7 +406,12 @@ func cmdRotateKey() error {
 		if gerr != nil {
 			return fmt.Errorf("rotate: wrap %s: %w", id, gerr)
 		}
-		hdr := &SnapshotHeader{Generation: oldHdr.Generation, ParentCipherHash: parent, WrappedDEK: wrapped, PQ: cfg.CryptoMode == CryptoHybrid, KemCT: kemCT}
+		if lastGen == ^uint64(0) {
+			return fmt.Errorf("snapshot generation exhausted")
+		}
+		lastGen++
+		newID := SnapshotID(lastGen)
+		hdr := &SnapshotHeader{Generation: lastGen, ParentCipherHash: parent, WrappedDEK: wrapped, PQ: cfg.CryptoMode == CryptoHybrid, KemCT: kemCT}
 		nonce, nerr := randBytes(xchacha20NonceLen)
 		if nerr != nil {
 			return nerr
@@ -397,7 +427,7 @@ func cmdRotateKey() error {
 			return fmt.Errorf("rotate: encrypt %s: %w", id, eerr)
 		}
 		zero(dek)
-		out := filepath.Join(stageSnaps, id+".xsnap")
+		out := filepath.Join(stageSnaps, newID+".xsnap")
 		tmp := out + ".tmp"
 		if err := os.WriteFile(tmp, append(headerBuf.Bytes(), body.Bytes()...), 0600); err != nil {
 			return err
@@ -414,7 +444,6 @@ func cmdRotateKey() error {
 			return herr
 		}
 		parent = h
-		lastGen = oldHdr.Generation
 	}
 
 	newKF, err := BuildKeyfile(newMaster, passphrase, newRecovery)
@@ -422,17 +451,9 @@ func cmdRotateKey() error {
 		return fmt.Errorf("rotate: build keyfile: %w", err)
 	}
 
-	backupDir := filepath.Join(stateDir(), "pre-rotate-"+time.Now().UTC().Format("20060102T150405Z"))
-	if err := os.MkdirAll(backupDir, 0700); err != nil {
+	backupDir, err := os.MkdirTemp(stateDir(), "pre-rotate-"+time.Now().UTC().Format("20060102T150405Z")+"-")
+	if err != nil {
 		return err
-	}
-	for _, item := range []string{"keyfile.json", "head.json", "snapshots"} {
-		old := filepath.Join(stateDir(), item)
-		if _, serr := os.Lstat(old); serr == nil {
-			if rerr := os.Rename(old, filepath.Join(backupDir, item)); rerr != nil {
-				return fmt.Errorf("rotate: preserve %s: %w", item, rerr)
-			}
-		}
 	}
 	rollback := func() {
 		_ = os.Remove(keyfilePath())
@@ -444,6 +465,31 @@ func cmdRotateKey() error {
 				_ = os.Rename(p, filepath.Join(stateDir(), item))
 			}
 		}
+	}
+	// Persist the interlock before changing any active key material. A crash
+	// or stale keyring can never start a backup with mismatched recovery keys.
+	if err := requireVerifiedUnlock("Key rotation requires a verified unlock before backup."); err != nil {
+		return err
+	}
+	for _, item := range []string{"keyfile.json", "head.json", "snapshots"} {
+		old := filepath.Join(stateDir(), item)
+		if _, serr := os.Lstat(old); serr == nil {
+			if rerr := os.Rename(old, filepath.Join(backupDir, item)); rerr != nil {
+				for _, saved := range []string{"keyfile.json", "head.json", "snapshots"} {
+					from := filepath.Join(backupDir, saved)
+					if _, e := os.Lstat(from); e == nil {
+						_ = os.Rename(from, filepath.Join(stateDir(), saved))
+					}
+				}
+				return fmt.Errorf("rotate: preserve %s: %w", item, rerr)
+			}
+		}
+	}
+	if err := syncDirectory(backupDir); err != nil {
+		return err
+	}
+	if err := syncDirectory(stateDir()); err != nil {
+		return err
 	}
 	if len(ids) > 0 {
 		if err := os.Rename(stageSnaps, snapshotsDir()); err != nil {
@@ -460,14 +506,14 @@ func cmdRotateKey() error {
 		rollback()
 		return fmt.Errorf("rotate: save keyfile: %w", err)
 	}
-	if err := KeyringStore(newMaster); err != nil {
-		log("warning: keyring store failed: %v (run unlock)", err)
+	if err := cacheAndVerifyMaster(newMaster); err != nil {
+		log("warning: rotation completed, but backups remain blocked until unlock: %v", err)
 	}
 	code := RecoveryBytesToCode(newRecovery)
 	fmt.Printf("\n  ============================================================\n")
 	fmt.Printf("  NEW RECOVERY CODE (write this down — shown ONLY ONCE):\n\n  %s\n", code)
 	fmt.Printf("  ============================================================\n\n")
 	log("master key rotated; %d snapshots re-encrypted; previous key material preserved at %s (delete after a verified backup)", len(ids), backupDir)
-	fmt.Println("Run a backup now: old cloud kits use the previous key and must be replaced.")
+	fmt.Println("Run a backup now to publish a new recovery kit. Retained cloud kits keep their original keys.")
 	return nil
 }

@@ -573,6 +573,7 @@ on_backup_status_finished (GObject *source_object, GAsyncResult *res, gpointer u
 	gboolean initialised = FALSE;
 	gboolean key_cached = FALSE;
 	gboolean unlock_required = FALSE;
+	gboolean pq_escrow_required = FALSE;
 	gint local_snapshots = 0;
 	guint64 head_generation = 0;
 	gchar *cloud_remote = g_strdup ("");
@@ -602,6 +603,8 @@ on_backup_status_finished (GObject *source_object, GAsyncResult *res, gpointer u
 			key_cached = (g_strcmp0 (v, "true") == 0);
 		else if (g_strcmp0 (k, "unlock_required") == 0)
 			unlock_required = (g_strcmp0 (v, "true") == 0);
+		else if (g_strcmp0 (k, "pq_escrow_required") == 0)
+			pq_escrow_required = (g_strcmp0 (v, "true") == 0);
 		else if (g_strcmp0 (k, "local_snapshots") == 0)
 			local_snapshots = (gint) g_ascii_strtoll (v, NULL, 10);
 		else if (g_strcmp0 (k, "head_generation") == 0)
@@ -701,7 +704,7 @@ on_backup_status_finished (GObject *source_object, GAsyncResult *res, gpointer u
 	g_string_free (status_text, TRUE);
 
 	gtk_widget_set_sensitive (pref->priv->backup_now_button,
-		initialised && key_cached && !unlock_required && !pref->priv->backup_busy);
+		initialised && key_cached && !unlock_required && !pq_escrow_required && !pref->priv->backup_busy);
 
 	if (pref->priv->backup_crypto_row) {
 		adw_combo_row_set_selected (ADW_COMBO_ROW (pref->priv->backup_crypto_row),
@@ -728,6 +731,12 @@ on_backup_status_finished (GObject *source_object, GAsyncResult *res, gpointer u
 			adw_action_row_set_subtitle (ADW_ACTION_ROW (pref->priv->backup_test_row),
 				_("Never tested — prove the newest backup opens"));
 		}
+	}
+	if (pq_escrow_required) {
+		adw_action_row_set_subtitle (ADW_ACTION_ROW (pref->priv->backup_recovery_row),
+			_("Download recovery keys and store them separately before hybrid backups can start."));
+		adw_action_row_set_subtitle (ADW_ACTION_ROW (pref->priv->backup_status_row),
+			_("Hybrid backup setup needs a recovery-key export."));
 	}
 	gboolean keys_ready = initialised && key_cached && !unlock_required;
 	if (pref->priv->backup_test_button)
@@ -1106,7 +1115,8 @@ static void
 on_export_folder_chosen (GObject *source_object, GAsyncResult *res, gpointer user_data)
 {
 	GtkFileDialog *dialog = GTK_FILE_DIALOG (source_object);
-	XpadPreferences *pref = XPAD_PREFERENCES (user_data);
+	g_autoptr(GObject) keep_alive = G_OBJECT (user_data);
+	XpadPreferences *pref = XPAD_PREFERENCES (keep_alive);
 	GError *error = NULL;
 	GFile *folder = gtk_file_dialog_select_folder_finish (dialog, res, &error);
 	if (!folder) {
@@ -1117,8 +1127,13 @@ on_export_folder_chosen (GObject *source_object, GAsyncResult *res, gpointer use
 	g_object_unref (folder);
 	if (!path)
 		return;
-	gchar *dest = g_build_filename (path, "xnote-escrow-export", NULL);
+	gchar *dest = g_build_filename (path, "xnote-escrow-export-XXXXXX", NULL);
 	g_free (path);
+	if (!g_mkdtemp_full (dest, 0700)) {
+		show_backup_alert (pref, _("Recovery Key Export Failed"), _("Could not create a new export folder at that location."));
+		g_free (dest);
+		return;
+	}
 	const gchar *helper = xpad_backup_get_helper_path ();
 	if (helper) {
 		pref->priv->backup_busy = TRUE;
@@ -1136,8 +1151,10 @@ on_backup_export_clicked (GtkButton *button, XpadPreferences *pref)
 		return;
 	GtkFileDialog *dialog = gtk_file_dialog_new ();
 	gtk_file_dialog_set_title (dialog, _("Download Recovery Keys"));
-	gtk_file_dialog_select_folder (dialog, GTK_WINDOW (pref), NULL,
-		on_export_folder_chosen, pref);
+	GtkRoot *root = gtk_widget_get_root (GTK_WIDGET (pref));
+	GtkWindow *parent = GTK_IS_WINDOW (root) ? GTK_WINDOW (root) : NULL;
+	gtk_file_dialog_select_folder (dialog, parent, pref->priv->backup_cancellable,
+		on_export_folder_chosen, g_object_ref (pref));
 }
 
 typedef struct {
@@ -1941,7 +1958,7 @@ xpad_preferences_constructed (GObject *object)
 	adw_preferences_group_add (grp_backup_enc, pref->priv->backup_encryption_row);
 
 	AdwPreferencesGroup *grp_backup_status = ADW_PREFERENCES_GROUP (adw_preferences_group_new ());
-	adw_preferences_group_set_title (grp_backup_status, _("Status & Schedule"));
+	adw_preferences_group_set_title (grp_backup_status, _("Status and Schedule"));
 	adw_preferences_page_add (page_backup, grp_backup_status);
 
 	pref->priv->backup_status_row = adw_action_row_new ();

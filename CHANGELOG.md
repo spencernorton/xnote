@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.3.2 — 2026-10-28
+
+- Keep unchanged tray menu rows cached so the menu opens completely instead of growing row by row.
+- Preserve PQ secrets when repairing missing public keys and reject mismatched pairs.
+- Add validated escrow-key import and an export requirement before hybrid backups.
+- Keep backups locked across interrupted import/rotation and failed keyring updates; verify and sync recovery state before unlocking.
+- Give rotated snapshots fresh cloud-kit identities and bind cloud receipts to ciphertext and destinations. Retry incomplete mirror delivery.
+- Use the actual Preferences parent window for key downloads, and create a fresh export folder for each download.
+
 ## 3.3.1 — 2026-10-28
 
 - Fix Google Drive/Dropbox sign-in validation when the rclone configuration

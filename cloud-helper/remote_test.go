@@ -544,6 +544,12 @@ func TestRemoteStatusKeepsSuccessSnapshotSeparateFromLaterFailure(t *testing.T) 
 	setupScratchHome(t)
 	successID := "20260723T120000Z-g00000000000000000001"
 	failedID := "20260723T130000Z-g00000000000000000002"
+	if err := os.MkdirAll(snapshotsDir(), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(SnapshotPath(successID), []byte("synthetic ciphertext"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	if err := recordRemoteAttempt(successID, "testhost", nil); err != nil {
 		t.Fatal(err)
 	}
