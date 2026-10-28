@@ -11,6 +11,7 @@
 #include <glib.h>
 #include <glib/gstdio.h>
 #include <gtk/gtk.h>
+#include <unistd.h>
 
 #include "xpad-app.h"
 #include "xpad-pad.h"
@@ -179,6 +180,87 @@ wait_until_ready (void)
 	g_assert_true (xpad_tray_ready ());
 }
 
+static GVariant *menu_reply;
+static void
+menu_call_finished (GObject *source, GAsyncResult *result, gpointer data)
+{
+	(void) data;
+	GError *error = NULL;
+	menu_reply = g_dbus_connection_call_finish (G_DBUS_CONNECTION (source), result, &error);
+	g_assert_no_error (error);
+}
+
+static GVariant *
+menu_call (const gchar *method, GVariant *parameters)
+{
+	GError *error = NULL;
+	GDBusConnection *connection = g_bus_get_sync (G_BUS_TYPE_SESSION, NULL, &error);
+	g_assert_no_error (error);
+	gchar *name = g_strdup_printf ("org.kde.StatusNotifierItem-%d-1", (int) getpid ());
+	menu_reply = NULL;
+	g_dbus_connection_call (connection, name, "/MenuBar", "com.canonical.dbusmenu",
+		method, parameters, NULL, G_DBUS_CALL_FLAGS_NONE, 2000, NULL,
+		menu_call_finished, NULL);
+	gint64 deadline = g_get_monotonic_time () + 3 * G_TIME_SPAN_SECOND;
+	while (!menu_reply && g_get_monotonic_time () < deadline)
+		g_main_context_iteration (NULL, TRUE);
+	g_assert_nonnull (menu_reply);
+	g_free (name);
+	g_object_unref (connection);
+	return menu_reply;
+}
+
+static void
+assert_cached_menu (void)
+{
+	GVariant *before = menu_call ("GetLayout", g_variant_new ("(ii@as)", 0, -1,
+		g_variant_new_strv (NULL, 0)));
+	for (guint i = 0; i < 3; i++) {
+		GVariant *about = menu_call ("AboutToShow", g_variant_new ("(i)", 0));
+		gboolean changed;
+		g_variant_get (about, "(b)", &changed);
+		g_assert_false (changed);
+		g_variant_unref (about);
+		GVariant *after = menu_call ("GetLayout", g_variant_new ("(ii@as)", 0, -1,
+			g_variant_new_strv (NULL, 0)));
+		g_assert_true (g_variant_equal (before, after));
+		g_variant_unref (after);
+	}
+	GVariant *layout = g_variant_get_child_value (before, 1);
+	GVariant *children = g_variant_get_child_value (layout, 2);
+	GVariant *boxed = g_variant_get_child_value (children, 0);
+	GVariant *first = g_variant_get_variant (boxed);
+	gint32 new_id;
+	g_variant_get_child (first, 0, "i", &new_id);
+	guint previous_count = new_pad_count;
+	GVariant *clicked = menu_call ("Event", g_variant_new ("(isvu)", new_id,
+		"clicked", g_variant_new_int32 (0), 0));
+	g_variant_unref (clicked);
+	g_assert_cmpuint (new_pad_count, ==, previous_count + 1);
+	g_variant_unref (first);
+	g_variant_unref (boxed);
+	g_variant_unref (children);
+	g_variant_unref (layout);
+	/* A real enabled-state change must invalidate the cache even when there
+	 * are no title strings in this test group's model. */
+	group_has_pads = !group_has_pads;
+	GVariant *about = menu_call ("AboutToShow", g_variant_new ("(i)", 0));
+	gboolean changed;
+	g_variant_get (about, "(b)", &changed);
+	g_assert_true (changed);
+	g_variant_unref (about);
+	GVariant *after = menu_call ("GetLayout", g_variant_new ("(ii@as)", 0, -1,
+		g_variant_new_strv (NULL, 0)));
+	g_assert_false (g_variant_equal (before, after));
+	previous_count = new_pad_count;
+	clicked = menu_call ("Event", g_variant_new ("(isvu)", new_id,
+		"clicked", g_variant_new_int32 (0), 0));
+	g_variant_unref (clicked);
+	g_assert_cmpuint (new_pad_count, ==, previous_count);
+	g_variant_unref (after);
+	g_variant_unref (before);
+}
+
 static void
 test_queued_callbacks_and_reachability (void)
 {
@@ -240,6 +322,10 @@ test_queued_callbacks_and_reachability (void)
 	g_object_set (settings, "tray-enabled", FALSE, NULL);
 	g_assert_cmpuint (new_pad_count, ==, 1);
 
+	g_object_set (settings, "tray-enabled", TRUE, NULL);
+	wait_until_ready ();
+	iterate_for (50 * 1000);
+	assert_cached_menu ();
 	xpad_tray_dispose (settings);
 	iterate_for (100 * 1000);
 	g_object_unref (settings);
