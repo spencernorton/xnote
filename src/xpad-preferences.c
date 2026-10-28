@@ -1962,7 +1962,7 @@ xpad_preferences_constructed (GObject *object)
 	adw_preferences_group_add (grp_backup_status, pref->priv->backup_timer_row);
 
 	AdwPreferencesGroup *grp_backup_recovery = ADW_PREFERENCES_GROUP (adw_preferences_group_new ());
-	adw_preferences_group_set_title (grp_backup_recovery, _("Recovery & Testing"));
+	adw_preferences_group_set_title (grp_backup_recovery, _("Recovery and Testing"));
 	adw_preferences_group_set_description (grp_backup_recovery,
 		_("Prove the newest backup opens, download the escrow keys, or rotate to a fresh master key."));
 	adw_preferences_page_add (page_backup, grp_backup_recovery);
