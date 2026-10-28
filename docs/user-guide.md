@@ -406,6 +406,7 @@ per line, `#` for comments:
 
 | Key | Meaning |
 |---|---|
+| `RCLONE_PASSWORD_COMMAND` | Optional command that supplies the password for an encrypted rclone configuration. Store a credential retrieval command here, never the password itself. It applies to provider sign-in, validation, uploads and restores after app restarts. An explicit environment value takes precedence. |
 | `KEEP_SNAPSHOTS` | Local snapshots to keep (default 60) |
 | `CLOUD_REMOTE` | Empty (the default) means local-only. A path starting with `/`, `~` or `.` is a mounted filesystem, copied with `rsync`. `name:path` is an rclone remote and needs `rclone` plus a one-time `rclone config`. A bare word is rejected so that a misspelt remote name cannot become a false local success |
 | `CLOUD_DEVICE` | Directory name for this machine on the remote (default: the hostname). Set it to the original name when recovering on a differently named machine |

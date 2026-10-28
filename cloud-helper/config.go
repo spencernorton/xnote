@@ -32,7 +32,8 @@ const (
 
 // Config holds settings from cloud-backup.conf (and defaults).
 type Config struct {
-	KeepSnapshots int
+	RclonePasswordCommand string
+	KeepSnapshots         int
 	// CloudRemote is the off-box push target: a mounted filesystem path
 	// or an rclone remote (name:path). Empty means local-only (no push).
 	CloudRemote string
@@ -82,12 +83,23 @@ func LoadConfig() (Config, error) {
 		}
 		if k, v, ok := strings.Cut(line, "="); ok {
 			k = strings.TrimSpace(k)
-			v = strings.Trim(strings.TrimSpace(v), `"'`)
+			v = strings.TrimSpace(v)
+			if strings.HasPrefix(v, "\"") {
+				if decoded, err := strconv.Unquote(v); err == nil {
+					v = decoded
+				} else {
+					return cfg, fmt.Errorf("invalid quoted configuration value for %s", k)
+				}
+			} else {
+				v = strings.Trim(v, "'")
+			}
 			switch k {
 			case "KEEP_SNAPSHOTS":
 				if n, err := strconv.Atoi(v); err == nil && n > 0 {
 					cfg.KeepSnapshots = n
 				}
+			case "RCLONE_PASSWORD_COMMAND":
+				cfg.RclonePasswordCommand = v
 			case "CLOUD_REMOTE":
 				cfg.CloudRemote = v
 			case "CLOUD_MIRROR":
@@ -153,6 +165,9 @@ func SaveConfig(cfg Config) error {
 
 	var b strings.Builder
 	b.WriteString("# XNote encrypted cloud backup configuration\n")
+	if cfg.RclonePasswordCommand != "" {
+		fmt.Fprintf(&b, "RCLONE_PASSWORD_COMMAND=%q\n", cfg.RclonePasswordCommand)
+	}
 	fmt.Fprintf(&b, "KEEP_SNAPSHOTS=%d\n", cfg.KeepSnapshots)
 	fmt.Fprintf(&b, "CLOUD_REMOTE=%q\n", cfg.CloudRemote)
 	if cfg.CloudMirror != "" {

@@ -133,6 +133,9 @@ func runRemoteCommand(cfg Config, name string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeoutFor(cfg))
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
+	if name == "rclone" {
+		configureRcloneEnvironment(cmd, cfg)
+	}
 	out, err := cmd.CombinedOutput()
 	if ctx.Err() == context.DeadlineExceeded {
 		return "", fmt.Errorf("%s timed out after %s", name, timeoutFor(cfg))
@@ -496,7 +499,7 @@ func fetchRecoveryFile(cfg Config, target remoteTarget, sourceRoot, relativePath
 func rcloneCatToFile(cfg Config, source, dest string, maxBytes int64) error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeoutFor(cfg))
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "rclone", "cat", source)
+	cmd := newRcloneCommand(ctx, "cat", source)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	stdout, err := cmd.StdoutPipe()
@@ -620,7 +623,7 @@ func rcloneRemoteConfiguredViaCLI(remoteName, expectedType string) bool {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "rclone", "config", "show", remoteName).Output()
+	out, err := newRcloneCommand(ctx, "config", "show", remoteName).Output()
 	if err != nil {
 		return false
 	}
@@ -718,7 +721,7 @@ func cmdConnect(args []string) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), oauthConnectTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "rclone", createArgs...)
+	cmd := newRcloneCommand(ctx, createArgs...)
 	out, err := cmd.CombinedOutput()
 	if ctx.Err() == context.DeadlineExceeded {
 		return fmt.Errorf("browser sign-in timed out after %s", oauthConnectTimeout)
@@ -760,7 +763,7 @@ func cmdDisconnect(args []string) error {
 	if _, err := exec.LookPath("rclone"); err == nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		cmd := exec.CommandContext(ctx, "rclone", "config", "delete", remoteName)
+		cmd := newRcloneCommand(ctx, "config", "delete", remoteName)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("rclone disconnect failed: %w: %s", err, strings.TrimSpace(string(out)))
 		}
@@ -778,4 +781,20 @@ func cmdDisconnect(args []string) error {
 	}
 	log("disconnected %s", provider)
 	return nil
+}
+
+// Configured credential commands survive GUI restarts and apply to every
+// provider operation, including token validation and scheduled uploads.
+func configureRcloneEnvironment(cmd *exec.Cmd, cfg Config) {
+	if os.Getenv("RCLONE_PASSWORD_COMMAND") != "" || cfg.RclonePasswordCommand == "" {
+		return
+	}
+	cmd.Env = append(os.Environ(), "RCLONE_PASSWORD_COMMAND="+cfg.RclonePasswordCommand)
+}
+func newRcloneCommand(ctx context.Context, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, "rclone", args...)
+	if cfg, err := LoadConfig(); err == nil {
+		configureRcloneEnvironment(cmd, cfg)
+	}
+	return cmd
 }
