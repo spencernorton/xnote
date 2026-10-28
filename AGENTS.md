@@ -7,3 +7,5 @@
 - Capture demos in a disposable environment with synthetic data. Review every animation frame.
 - Keep unreleased changes in `CHANGELOG.md`; never rewrite published tags.
 - Use a GitHub noreply commit identity. Document behavior and relevant validation in the pull request.
+
+- Read the newest entries in `AGENTS/journal.md` for recent implementation and validation context.

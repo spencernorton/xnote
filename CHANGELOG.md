@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Keep tray menu rows and their action IDs cached when notes and available actions are unchanged. Opening the menu no longer recreates its rows progressively; real changes still retire stale IDs.
+
 ## 3.2.6 — 2026-10-27
 
 - Fix: at login, restored notes across workspaces no longer make the dock icon

@@ -91,7 +91,6 @@ static gboolean tray_watch_resolved = FALSE;   /* watcher presence settled eithe
 
 static GPtrArray *tray_items = NULL;     /* of TrayItem* */
 static guint32 tray_menu_revision = 1;
-static gchar *tray_last_fingerprint = NULL;
 /* dbusmenu item IDs are handed out monotonically and never reused across
    rebuilds, so a click delivered against a stale menu revision cannot be
    misdispatched to whatever now occupies that slot position. */
@@ -208,7 +207,8 @@ tray_rebuild_menu (void)
 	XpadPadGroup *group = xpad_app_get_pad_group ();
 	gboolean has_pads = xpad_pad_group_has_pads (group);
 
-	g_ptr_array_set_size (tray_items, 0);
+	GPtrArray *previous_items = tray_items;
+	tray_items = g_ptr_array_new_with_free_func (tray_item_free);
 
 	tray_add_item (_("_New"), TRUE, TRAY_ACT_NEW);
 	tray_add_item (NULL, TRUE, TRAY_ACT_SEPARATOR);
@@ -218,12 +218,10 @@ tray_rebuild_menu (void)
 
 	/* Live list of pads, sorted by title. */
 	GSList *pads = xpad_pad_group_get_pads_sorted_by_title (group);
-	GString *fingerprint = g_string_new (NULL);
 	gint n = 1;
 	for (GSList *l = pads; l; l = l->next, n++) {
 		XpadPad *pad = l->data;
 		gchar *title = xpad_pad_get_title_for_menu (pad, n);
-		g_string_append (fingerprint, title);
 		TrayItem *item = tray_add_item (title, TRUE, TRAY_ACT_PRESENT);
 		/* Weak: a pad destroyed while a host still shows the old menu must
 		   NULL out here, not dangle into tray_dispatch. */
@@ -240,10 +238,21 @@ tray_rebuild_menu (void)
 	tray_add_item (_("_Help"), TRUE, TRAY_ACT_HELP);
 	tray_add_item (_("_Quit"), TRUE, TRAY_ACT_QUIT);
 
-	gchar *new_fp = g_string_free (fingerprint, FALSE);
-	gboolean changed = (g_strcmp0 (new_fp, tray_last_fingerprint) != 0);
-	g_free (tray_last_fingerprint);
-	tray_last_fingerprint = new_fp;
+	/* Keep IDs and the host's cached actors when the complete model is equal.
+	 * Compare pad identity too: same-title replacements must retire old IDs. */
+	gboolean changed = previous_items->len != tray_items->len;
+	for (guint i = 0; !changed && i < tray_items->len; i++) {
+		TrayItem *old = g_ptr_array_index (previous_items, i);
+		TrayItem *fresh = g_ptr_array_index (tray_items, i);
+		changed = old->action != fresh->action || old->enabled != fresh->enabled ||
+			old->pad != fresh->pad || g_strcmp0 (old->label, fresh->label) != 0;
+	}
+	if (!changed) {
+		g_ptr_array_unref (tray_items);
+		tray_items = previous_items;
+	} else {
+		g_ptr_array_unref (previous_items);
+	}
 
 	return changed;
 }
@@ -406,19 +415,10 @@ tray_menu_method (GDBusConnection *connection, const gchar *sender,
 		g_dbus_method_invocation_return_value (invocation, NULL);
 	}
 	else if (g_strcmp0 (method_name, "AboutToShow") == 0) {
-		/* Rebuild the pad list right before the menu opens. tray_rebuild_menu()
-		   re-issues fresh, monotonically higher item ids on EVERY call (ids are
-		   never reused), so the layout the host cached from its last GetLayout is
-		   now stale even when the pad titles are unchanged. We must therefore
-		   always bump the revision and report needUpdate=TRUE so a caching host
-		   (GNOME's AppIndicator/KStatusNotifierItem extension) re-reads the current
-		   ids before displaying. The old behaviour returned FALSE whenever the pad
-		   set was unchanged (the steady state), leaving the host to dispatch
-		   Event() against stale ids that tray_find_item() could no longer match —
-		   so every menu row silently did nothing. */
-		tray_rebuild_menu ();
-		tray_menu_revision++;
-		g_dbus_method_invocation_return_value (invocation, g_variant_new ("(b)", TRUE));
+		gboolean changed = tray_rebuild_menu ();
+		if (changed)
+			tray_menu_revision++;
+		g_dbus_method_invocation_return_value (invocation, g_variant_new ("(b)", changed));
 	}
 	else {
 		g_dbus_method_invocation_return_error (invocation, G_DBUS_ERROR,
@@ -684,7 +684,6 @@ tray_runtime_stop (void)
 	g_clear_pointer (&tray_menu_info, g_dbus_node_info_unref);
 	g_clear_pointer (&tray_items, g_ptr_array_unref);
 	g_clear_pointer (&tray_well_known_name, g_free);
-	g_clear_pointer (&tray_last_fingerprint, g_free);
 
 	tray_sni_reg_id = tray_menu_reg_id = tray_owner_id = tray_watcher_watch_id = 0;
 	tray_active = tray_watcher_present = FALSE;
