@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.3.3 — 2026-10-29
+
+- Fix the tray menu fading in row by row after a note is edited: dbusmenu
+  row IDs are now positional and stable across rebuilds, so the menu host
+  keeps its actors and updates changed labels in place instead of
+  destroying every row and re-adding them one idle at a time.
+
 ## 3.3.2 — 2026-10-28
 
 - Keep unchanged tray menu rows cached so the menu opens completely instead of growing row by row.
