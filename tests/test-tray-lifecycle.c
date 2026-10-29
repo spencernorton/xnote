@@ -210,6 +210,27 @@ menu_call (const gchar *method, GVariant *parameters)
 	return menu_reply;
 }
 
+
+static GArray *
+layout_item_ids (GVariant *reply)
+{
+	GVariant *layout = g_variant_get_child_value (reply, 1);
+	GVariant *children = g_variant_get_child_value (layout, 2);
+	GArray *ids = g_array_new (FALSE, FALSE, sizeof (gint32));
+	for (guint i = 0; i < g_variant_n_children (children); i++) {
+		GVariant *boxed = g_variant_get_child_value (children, i);
+		GVariant *item = g_variant_get_variant (boxed);
+		gint32 id;
+		g_variant_get_child (item, 0, "i", &id);
+		g_array_append_val (ids, id);
+		g_variant_unref (item);
+		g_variant_unref (boxed);
+	}
+	g_variant_unref (children);
+	g_variant_unref (layout);
+	return ids;
+}
+
 static void
 assert_cached_menu (void)
 {
@@ -252,11 +273,23 @@ assert_cached_menu (void)
 	GVariant *after = menu_call ("GetLayout", g_variant_new ("(ii@as)", 0, -1,
 		g_variant_new_strv (NULL, 0)));
 	g_assert_false (g_variant_equal (before, after));
+	/* Row IDs are positional and stable across rebuilds, so a host can keep
+	 * its actors for unchanged rows and update changed labels in place
+	 * instead of destroying every row and re-adding them one idle at a time
+	 * (the slow fade). The first row keeps its ID, so it still dispatches. */
+	GArray *ids_before = layout_item_ids (before);
+	GArray *ids_after = layout_item_ids (after);
+	g_assert_cmpuint (ids_after->len, ==, ids_before->len);
+	for (guint i = 0; i < ids_before->len; i++)
+		g_assert_cmpint (g_array_index (ids_after, gint32, i), ==,
+			g_array_index (ids_before, gint32, i));
+	g_array_unref (ids_before);
+	g_array_unref (ids_after);
 	previous_count = new_pad_count;
 	clicked = menu_call ("Event", g_variant_new ("(isvu)", new_id,
 		"clicked", g_variant_new_int32 (0), 0));
 	g_variant_unref (clicked);
-	g_assert_cmpuint (new_pad_count, ==, previous_count);
+	g_assert_cmpuint (new_pad_count, ==, previous_count + 1);
 	g_variant_unref (after);
 	g_variant_unref (before);
 }

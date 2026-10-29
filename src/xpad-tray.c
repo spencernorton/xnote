@@ -91,10 +91,13 @@ static gboolean tray_watch_resolved = FALSE;   /* watcher presence settled eithe
 
 static GPtrArray *tray_items = NULL;     /* of TrayItem* */
 static guint32 tray_menu_revision = 1;
-/* dbusmenu item IDs are handed out monotonically and never reused across
-   rebuilds, so a click delivered against a stale menu revision cannot be
-   misdispatched to whatever now occupies that slot position. */
-static gint32 tray_next_item_id = 1;
+/* dbusmenu item IDs are positional (index + 1) and stable across rebuilds.
+   An AppIndicator host keeps one actor per ID: with stable IDs a changed
+   menu updates labels in place, while renumbering makes the host destroy
+   every row and re-add them one idle at a time -- the slow fade seen when
+   opening the menu after editing a note. Clicks still dispatch against the
+   current model at the same position, and AboutToShow reports changes so
+   the host re-reads the layout before it displays. */
 
 /* ----------------------------------------------------------------------------
  * D-Bus introspection
@@ -191,7 +194,7 @@ static TrayItem *
 tray_add_item (const gchar *label, gboolean enabled, TrayAction action)
 {
 	TrayItem *item = g_new0 (TrayItem, 1);
-	item->id = tray_next_item_id++;
+	item->id = (gint32) tray_items->len + 1;
 	item->label = g_strdup (label);
 	item->enabled = enabled;
 	item->action = action;
@@ -238,8 +241,10 @@ tray_rebuild_menu (void)
 	tray_add_item (_("_Help"), TRUE, TRAY_ACT_HELP);
 	tray_add_item (_("_Quit"), TRUE, TRAY_ACT_QUIT);
 
-	/* Keep IDs and the host's cached actors when the complete model is equal.
-	 * Compare pad identity too: same-title replacements must retire old IDs. */
+	/* Keep the previous items when the complete model is equal, so an
+	 * unchanged menu stays cached host-side. Compare pad identity too: a
+	 * same-title replacement at a position must still count as a change so
+	 * the host refreshes that row's properties. */
 	gboolean changed = previous_items->len != tray_items->len;
 	for (guint i = 0; !changed && i < tray_items->len; i++) {
 		TrayItem *old = g_ptr_array_index (previous_items, i);
