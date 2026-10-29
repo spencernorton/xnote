@@ -64,6 +64,9 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="3.3.3" date="2026-10-29">
+      <description><p>Fix the tray menu fading in row by row after editing a note: menu row IDs are stable across rebuilds so changed labels update in place.</p></description>
+    </release>
     <release version="3.3.2" date="2026-10-28">
       <description><p>Keep tray menus responsive and make hybrid-key escrow, recovery and key rotation fail safely across interrupted operations.</p></description>
     </release>
