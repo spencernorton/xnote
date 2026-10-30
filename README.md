@@ -19,7 +19,7 @@
 </p>
 
 <p align="center">
-  <img alt="Five sticky notes on a desktop: a line is typed into one, a new note is created with Ctrl+N, its title made bold, and it is resized" src="screenshots/xnote-session.png" width="900">
+  <picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/demos/notes-still.png"><img src="docs/demos/notes.gif" alt="Five sticky notes on a desktop: a line is typed into one, a new note is created with Ctrl+N, its title made bold, and it is resized" width="900"></picture>
 </p>
 
 The recording and every picture below come from a fresh, isolated profile with invented notes; nothing personal appears in them.
@@ -29,6 +29,8 @@ where you left it. XNote keeps each one as an independent window, saves every
 change as you type, and never sends a byte anywhere unless you ask it to. It
 is a GPL-3.0-or-later descendant of Xpad, rebuilt on GTK 4 and libadwaita for
 GNOME on Wayland.
+
+[Recordings and still images](docs/demos/README.md).
 
 ## What it does
 
@@ -57,7 +59,7 @@ random colour so a cluster reads at a glance.
 
 
 <p align="center">
-  <img alt="Clicking the colour dot on a note's toolbar opens a row of swatches; picking one recolours the note" src="screenshots/xnote-color-popover.png" width="470">
+  <picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/demos/colours-still.png"><img src="docs/demos/colours.gif" alt="Clicking the colour dot on a note's toolbar opens a row of swatches; picking one recolours the note" width="470"></picture>
   <img alt="The XNote colour palette" src="screenshots/xnote-color-picker.png" width="420">
 </p>
 <p align="center">
