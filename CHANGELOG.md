@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Align the README suite and release links.
+
 ## 3.3.3 — 2026-10-29
 
 - Fix the tray menu fading in row by row after a note is edited: dbusmenu
