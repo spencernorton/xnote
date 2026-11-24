@@ -85,6 +85,7 @@ void xpad_pad_remove_accelerator_group (XpadPad *pad);
    _NET_WM_MOVERESIZE on X11. Only valid from inside a gesture "pressed"
    handler — it reads the press point and device off @gesture. */
 void xpad_pad_begin_window_drag (GtkWidget *widget, GtkGestureClick *gesture, gboolean move);
+void xpad_pad_begin_window_resize (GtkWidget *widget, GtkGestureClick *gesture, GdkSurfaceEdge edge);
 gchar* xpad_pad_get_title_for_menu (XpadPad *pad, gint pad_number);
 
 G_END_DECLS

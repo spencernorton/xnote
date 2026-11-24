@@ -151,6 +151,7 @@ xpad_app_init (int argc, char **argv)
 			process_remote_args (&xpad_argc, &xpad_argv, FALSE, settings);
 			fprintf (output, "%s\n", _("XNote is a graphical program.  Please run it from your desktop."));
 		}
+		g_clear_pointer (&server_filename, g_free);
 		exit (0);
 	}
 
@@ -183,8 +184,10 @@ xpad_app_init (int argc, char **argv)
 
 	process_local_args (&xpad_argc, &xpad_argv);
 
-	if (xpad_app_pass_args ())
+	if (xpad_app_pass_args ()) {
+		g_clear_pointer (&server_filename, g_free);
 		exit (0);
+	}
 
 	/* Race condition here, between calls */
 	xpad_app_open_proc_file ();
@@ -242,8 +245,7 @@ xpad_app_init (int argc, char **argv)
 		show_help ();
 	}
 
-	g_free (server_filename);
-	server_filename = NULL;
+	/* Keep server_filename allocated until xpad_app_quit() unlinks the socket. */
 }
 
 gint main (gint argc, gchar **argv)
@@ -380,7 +382,10 @@ xpad_app_quit (void)
 
 	/* A clean quit leaves no socket behind: the backup helper's restore only
 	   dials it, but a stale file still misleads anyone looking at the dir. */
-	g_unlink (server_filename);
+	if (server_filename) {
+		g_unlink (server_filename);
+		g_clear_pointer (&server_filename, g_free);
+	}
 
 	exit(EXIT_SUCCESS);
 }
@@ -1177,8 +1182,8 @@ process_remote_args (gint *argc, gchar **argv[], gboolean have_gtk, XpadSettings
 		static gboolean startup_args_done = FALSE;
 		gboolean is_startup = !startup_args_done;
 
-		if (!option_new && !startup_args_done) {
-			g_object_get (settings, "autostart-new-pad", &option_new, NULL);
+		if (xpad_settings && !option_new && !startup_args_done) {
+			g_object_get (xpad_settings, "autostart-new-pad", &option_new, NULL);
 		}
 		startup_args_done = TRUE;
 
@@ -1202,7 +1207,7 @@ process_remote_args (gint *argc, gchar **argv[], gboolean have_gtk, XpadSettings
 			xpad_pad_group_toggle_hide (pad_group);
 		}
 
-		if (!option_hide && !option_show) {
+		if (xpad_settings && !option_hide && !option_show) {
 			guint display_pads =
 				xpad_settings_get_effective_startup_display (xpad_settings);
 

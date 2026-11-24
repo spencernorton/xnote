@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 3.3.4 — 2026-11-24
+
+- Decouple the bottom-right resize grip from **Show toolbar** on undecorated notes and add 8-way edge and corner resize zones (left-button drag) so borderless notes stay resizable even when the floating toolbar is turned off.
+- Fix stuck Wayland resize grabs on GNOME Shell 50 / Mutter 50: stop invoking button-3 `xdg_toplevel.resize` on `Ctrl` + right-drag (which left Mutter wedged in an active resize grab after release) and provide primary-button `Ctrl` + `Alt` + left-drag resizing from anywhere on a note alongside 8-way edge/corner resizing.
+- Fix per-note font size inflation (`1.33x` on every restart): `pango_font_description_to_css()` now honours absolute pixel sizes (`px`) instead of formatting them as points (`pt`) and uses locale-independent decimal formatting.
+- Persist note size changes on `notify::default-width` / `notify::default-height` and during `xpad_pad_save_unsaved()` so resizes are never lost on `--quit`, `SIGTERM`, or logout.
+- Keep the floating toolbar pill and corner resize grip visible after closing a context menu or color popover when the pointer never left the note.
+- Write `info-*` (and initial content for `--new-from-file`) synchronously on visibility transitions before Wayland mapping so compositor placement never races a newly created or unhidden note.
+- Remove the `server` socket cleanly on `--quit`, guard headless CLI invocation against `NULL` settings, attach the scrolled text view as the `GtkOverlay` base child, and snapshot pad lists during group teardown and close-all.
 - Align the README suite and release links.
 
 ## 3.3.3 — 2026-10-29

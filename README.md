@@ -45,7 +45,7 @@ and it is gone again.
 
 **Everything is a keystroke.** `Ctrl+N` for a new note, `Ctrl+B`/`I`/`U` for
 formatting, `Ctrl+F` to search inside a note; hold `Ctrl` and drag to move a
-note, `Ctrl` and right-drag to resize it. Right-click for the rest.
+note, drag any edge or corner (or `Ctrl+Alt` and left-drag) to resize it. Right-click for the rest.
 
 <p align="center">
   <img alt="The floating toolbar on a hovered note" src="screenshots/xnote-toolbar.png" width="900">

@@ -122,11 +122,13 @@ from XNote preferences* / *Use this font:* for a per-note font.
 
 ### Moving and resizing
 
-Hold `Ctrl` and drag with the left mouse button anywhere on the note to move
-it; hold `Ctrl` and drag with the right button to resize it. The small grip
-in the bottom-right corner (bottom-left in right-to-left locales) fades in
-with the toolbar and resizes with a plain left-button drag. The size is
-remembered per note; the position is not (see Placement on Wayland).
+Drag any edge or corner of an undecorated note with the left mouse button to
+resize it, or use the small grip in the bottom-right corner (bottom-left in
+right-to-left locales), which fades in on hover even when the toolbar is
+turned off. Hold `Ctrl` and drag with the left mouse button anywhere on the
+note to move it, or hold `Ctrl+Alt` and drag with the left button to resize it.
+The size is remembered per note; the position is not (see Placement on
+Wayland).
 
 ### Formatting
 
@@ -281,7 +283,7 @@ unreachable.
 | `Menu` or `Shift+F10` | Open the note's right-click menu |
 | `F1` | Help |
 | `Ctrl` + left drag | Move the note |
-| `Ctrl` + right drag | Resize the note |
+| `Ctrl` + `Alt` + left drag | Resize the note |
 
 Cut, copy, paste and select-all are the ordinary GTK text keys.
 
