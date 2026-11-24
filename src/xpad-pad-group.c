@@ -164,12 +164,21 @@ xpad_pad_group_remove (XpadPadGroup *group, GtkWidget *pad)
 void
 xpad_pad_group_destroy_pads (XpadPadGroup *group)
 {
-	xpad_pad_group_save_unsaved_all(group);
+	if (!group)
+		return;
 
-	/* Remove (and thus disable) all the key accelerators before the pads get destroyed, preventing a call to a non-existing accelerator */
-	g_slist_foreach (group->priv->pads, (GFunc) xpad_pad_remove_accelerator_group, NULL);
-	/* Pads are GtkWindows; GTK 4 replaced gtk_widget_destroy() with gtk_window_destroy(). */
-	g_slist_foreach (group->priv->pads, (GFunc) gtk_window_destroy, NULL);
+	xpad_pad_group_save_unsaved_all (group);
+
+	/* Destroying each pad emits "destroy", which unlinks it from
+	   group->priv->pads via xpad_pad_group_remove(). Snapshot and ref the list
+	   first so we never walk freed GSList nodes. */
+	GSList *pads = g_slist_copy (group->priv->pads);
+	g_slist_foreach (pads, (GFunc) g_object_ref, NULL);
+	for (GSList *l = pads; l; l = l->next) {
+		xpad_pad_remove_accelerator_group (XPAD_PAD (l->data));
+		gtk_window_destroy (GTK_WINDOW (l->data));
+	}
+	g_slist_free_full (pads, g_object_unref);
 }
 
 static guint
@@ -207,8 +216,16 @@ static void xpad_pad_group_save_unsaved_all (XpadPadGroup *group) {
 void
 xpad_pad_group_close_all (XpadPadGroup *group)
 {
-	if (group)
-		g_slist_foreach (group->priv->pads, (GFunc) xpad_pad_close, NULL);
+	if (!group)
+		return;
+
+	/* Closing the last visible pad without a tray quits and destroys the group;
+	   snapshot and ref the list so iteration stays valid across re-entrant changes. */
+	GSList *pads = g_slist_copy (group->priv->pads);
+	g_slist_foreach (pads, (GFunc) g_object_ref, NULL);
+	for (GSList *l = pads; l; l = l->next)
+		xpad_pad_close (XPAD_PAD (l->data));
+	g_slist_free_full (pads, g_object_unref);
 }
 
 void

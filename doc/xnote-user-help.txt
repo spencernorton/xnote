@@ -71,6 +71,6 @@ CTRL-F: Find in this note
 CTRL-J: Read-only on/off for all notes
 Menu or SHIFT-F10: The note's right-click menu
 CTRL + left drag: Move the note
-CTRL + right drag: Resize the note</tt>
+CTRL + Alt + left drag: Resize the note</tt>
 
 Ideas and bug reports: <u>https://github.com/spencernorton/xnote/issues</u>

@@ -73,6 +73,10 @@ struct XpadPadPrivate
 	GtkWidget *toolbar;
 	GtkWidget *toolbar_revealer;
 	GtkWidget *grip_revealer;
+	GtkWidget *resize_handles[8];
+	GtkEventController *motion;
+	gboolean hovered;
+	gboolean saved_hidden;
 	guint toolbar_timeout;
 	/* Open menus/popovers (pad menus, toolbar context menu, color picker).
 	   While non-zero the autohide toolbar must stay up: popovers anchored
@@ -145,8 +149,11 @@ static void xpad_pad_notify_has_scrollbar (XpadPad *pad);
 static void xpad_pad_notify_has_decorations (XpadPad *pad);
 static void xpad_pad_notify_has_toolbar (XpadPad *pad);
 static void xpad_pad_notify_autohide_toolbar (XpadPad *pad);
-static void xpad_pad_hide_toolbar (XpadPad *pad);
-static void xpad_pad_show_toolbar (XpadPad *pad);
+static void xpad_pad_sync_hover_chrome (XpadPad *pad);
+static void xpad_pad_notify_visible (XpadPad *pad);
+static void xpad_pad_setup_resize_handles (XpadPad *pad);
+static void xpad_pad_update_resize_handles (XpadPad *pad, gboolean decorations);
+static void xpad_pad_ctrl_primary_pressed (GtkGestureClick *gesture, gint n_press, gdouble x, gdouble y, gpointer data);
 static void xpad_pad_popup (XpadPad *pad, gdouble x, gdouble y);
 static void xpad_pad_spawn (XpadPad *pad);
 static void xpad_pad_clear (XpadPad *pad);
@@ -335,6 +342,11 @@ xpad_pad_init (XpadPad *pad)
 	pad->priv->toolbar = NULL;
 	pad->priv->toolbar_revealer = NULL;
 	pad->priv->grip_revealer = NULL;
+	for (int i = 0; i < 8; i++)
+		pad->priv->resize_handles[i] = NULL;
+	pad->priv->motion = NULL;
+	pad->priv->hovered = FALSE;
+	pad->priv->saved_hidden = TRUE;
 	pad->priv->toolbar_timeout = 0;
 	pad->priv->menus_open = 0;
 	pad->priv->properties = NULL;
@@ -376,9 +388,10 @@ static void xpad_pad_constructed (GObject *object)
 	GtkSourceBuffer *buffer = GTK_SOURCE_BUFFER (gtk_text_view_get_buffer (GTK_TEXT_VIEW (pad->priv->textview)));
 	pad->priv->searchbar = xpad_search_bar_new (buffer);
 
-	/* overlay with scrollbar (with text) and searchbar */
+	/* overlay with scrollbar (main child), undecorated resize edges, and searchbar */
 	pad->priv->text_with_search_overlay = GTK_OVERLAY (gtk_overlay_new ());
-	gtk_overlay_add_overlay (pad->priv->text_with_search_overlay, pad->priv->scrollbar);
+	gtk_overlay_set_child (pad->priv->text_with_search_overlay, pad->priv->scrollbar);
+	xpad_pad_setup_resize_handles (pad);
 	gtk_overlay_add_overlay (pad->priv->text_with_search_overlay, GTK_WIDGET (pad->priv->searchbar));
 
 	/* Toolbar — a floating OSD pill overlaid bottom-center on the text and
@@ -457,6 +470,7 @@ static void xpad_pad_constructed (GObject *object)
 
 	g_object_get (pad->priv->settings, "has-decorations", &decorations, NULL);
 	gtk_window_set_decorated (pad_window, decorations);
+	xpad_pad_update_resize_handles (pad, decorations);
 	gtk_window_set_default_size (pad_window, (gint) pad->priv->width, (gint) pad->priv->height);
 	/* Pad placement is the compositor's call on Wayland, and the taskbar /
 	   pager hints have no Wayland equivalent — both are gone with X11. */
@@ -474,7 +488,7 @@ static void xpad_pad_constructed (GObject *object)
 	   app-paintable transparency dance is gone. */
 	gtk_widget_add_css_class (GTK_WIDGET (pad), "XpadPad");
 
-	xpad_pad_notify_has_toolbar (pad);
+	xpad_pad_sync_hover_chrome (pad);
 
 	/* Pointer + click handling via event controllers (GTK 4 removed the
 	   button-press-event / enter/leave-notify-event signals). */
@@ -483,10 +497,21 @@ static void xpad_pad_constructed (GObject *object)
 	g_signal_connect (click, "pressed", G_CALLBACK (xpad_pad_pressed), pad);
 	gtk_widget_add_controller (GTK_WIDGET (pad), GTK_EVENT_CONTROLLER (click));
 
+	/* Ctrl+left-drag moves and Ctrl+Alt+left-drag resizes from anywhere on
+	   the pad (capture phase so GtkTextView does not swallow the press).
+	   Primary-button xdg_toplevel.move/resize releases cleanly on Wayland;
+	   button-3 xdg_toplevel.resize leaves Mutter stuck in an active grab. */
+	GtkGesture *ctrl_drag = gtk_gesture_click_new ();
+	gtk_gesture_single_set_button (GTK_GESTURE_SINGLE (ctrl_drag), GDK_BUTTON_PRIMARY);
+	gtk_event_controller_set_propagation_phase (GTK_EVENT_CONTROLLER (ctrl_drag), GTK_PHASE_CAPTURE);
+	g_signal_connect (ctrl_drag, "pressed", G_CALLBACK (xpad_pad_ctrl_primary_pressed), pad);
+	gtk_widget_add_controller (GTK_WIDGET (pad), GTK_EVENT_CONTROLLER (ctrl_drag));
+
 	GtkEventController *motion = gtk_event_controller_motion_new ();
 	g_signal_connect (motion, "enter", G_CALLBACK (xpad_pad_enter), pad);
 	g_signal_connect (motion, "leave", G_CALLBACK (xpad_pad_leave), pad);
 	gtk_widget_add_controller (GTK_WIDGET (pad), motion);
+	pad->priv->motion = motion;
 
 	/* GtkTextView pops its own built-in context menu on right-click, which
 	   buries the pad menu (Close, New, Notes, Preferences…) — the text area is
@@ -502,8 +527,11 @@ static void xpad_pad_constructed (GObject *object)
 	   blanked pad repaints on minimize/restore / monitor wake (see force_redraw). */
 	g_signal_connect (pad, "realize", G_CALLBACK (xpad_pad_connect_surface_heal), NULL);
 	g_signal_connect (pad, "close-request", G_CALLBACK (xpad_pad_close_request), NULL);
-	/* GTK 4 removed the GtkWidget::show signal; "map" fires when the window is
-	   actually put on screen. */
+	/* GTK 4 removed the GtkWidget::show signal; notify::visible fires before
+	   the Wayland surface maps, and "map" fires once the window is shown. */
+	g_signal_connect (pad, "notify::visible", G_CALLBACK (xpad_pad_notify_visible), NULL);
+	g_signal_connect (pad, "notify::default-width", G_CALLBACK (xpad_pad_size_changed), NULL);
+	g_signal_connect (pad, "notify::default-height", G_CALLBACK (xpad_pad_size_changed), NULL);
 	g_signal_connect (pad, "map", G_CALLBACK (xpad_pad_show), NULL);
 	g_signal_connect_swapped (gtk_text_view_get_buffer (GTK_TEXT_VIEW (pad->priv->textview)), "changed", G_CALLBACK (xpad_pad_text_changed), pad);
 
@@ -594,6 +622,10 @@ xpad_pad_dispose (GObject *object)
 		pad->priv->toolbar = NULL;
 	}
 
+	pad->priv->motion = NULL;
+	for (int i = 0; i < 8; i++)
+		pad->priv->resize_handles[i] = NULL;
+
 	G_OBJECT_CLASS (xpad_pad_parent_class)->dispose (object);
 }
 
@@ -613,6 +645,35 @@ xpad_pad_finalize (GObject *object)
 	G_OBJECT_CLASS (xpad_pad_parent_class)->finalize (object);
 }
 
+static gboolean
+xpad_pad_chrome_autohides (XpadPad *pad)
+{
+	gboolean has_toolbar, autohide_toolbar, decorations;
+	g_object_get (pad->priv->settings,
+		"has-toolbar", &has_toolbar,
+		"autohide-toolbar", &autohide_toolbar,
+		"has-decorations", &decorations,
+		NULL);
+	return (has_toolbar && autohide_toolbar) || !decorations;
+}
+
+static void
+xpad_pad_notify_visible (XpadPad *pad)
+{
+	if (!gtk_widget_get_visible (GTK_WIDGET (pad)))
+		return;
+
+	/* Flush brand-new or newly unhidden pads synchronously before GTK maps
+	   the Wayland surface so compositor placement sees the live info-* file
+	   with hidden 0 (and initial file text for --new-from-file) immediately. */
+	if (!pad->priv->infoname || pad->priv->saved_hidden || pad->priv->unsaved_content) {
+		if (pad->priv->unsaved_content)
+			xpad_pad_save_content (pad);
+		pad->priv->unsaved_info = TRUE;
+		xpad_pad_save_info (pad);
+	}
+}
+
 static void
 xpad_pad_show (XpadPad *pad)
 {
@@ -626,8 +687,9 @@ xpad_pad_show (XpadPad *pad)
 	   note at login. */
 	gtk_widget_grab_focus (GTK_WIDGET (pad->priv->textview));
 
-	/* Save the new visibility status to the disk */
-	xpad_pad_save_info_delayed (pad);
+	/* Ensure visibility status reaches disk if notify::visible was unable to write it. */
+	if (!pad->priv->infoname || pad->priv->saved_hidden)
+		xpad_pad_save_info_delayed (pad);
 }
 
 static gboolean toolbar_timeout (XpadPad *pad)
@@ -635,20 +697,19 @@ static gboolean toolbar_timeout (XpadPad *pad)
 	if (!pad || !pad->priv || !pad->priv->toolbar_timeout)
 		return FALSE;
 
-	/* A menu or popover is open (e.g. the color picker, which is anchored
-	   inside the toolbar) — hiding now would yank it off screen. */
-	if (pad->priv->menus_open) {
-		pad->priv->toolbar_timeout = 0;
-		return FALSE;
-	}
-
-	gboolean has_toolbar, autohide_toolbar;
-	g_object_get (pad->priv->settings, "has-toolbar", &has_toolbar, "autohide-toolbar", &autohide_toolbar, NULL);
-
-	if (pad->priv->toolbar_timeout && autohide_toolbar && has_toolbar)
-		xpad_pad_hide_toolbar (pad);
-
 	pad->priv->toolbar_timeout = 0;
+
+	/* A menu/popover is open or the pointer is still inside the pad — keep the
+	   hover chrome visible instead of yanking it out from under the cursor. */
+	if (pad->priv->menus_open)
+		return FALSE;
+
+	if (pad->priv->motion &&
+	    gtk_event_controller_motion_contains_pointer (GTK_EVENT_CONTROLLER_MOTION (pad->priv->motion)))
+		return FALSE;
+
+	pad->priv->hovered = FALSE;
+	xpad_pad_sync_hover_chrome (pad);
 
 	return FALSE;
 }
@@ -670,19 +731,15 @@ xpad_pad_notify_has_decorations (XpadPad *pad)
 	 *  destroyed" warning and leaves it in an inconsistent state.
 	 */
 	gtk_window_set_decorated (pad_window, decorations);
+	xpad_pad_update_resize_handles (pad, decorations);
 	gtk_window_set_default_size (pad_window, (gint) pad->priv->width, (gint) pad->priv->height);
+	xpad_pad_sync_hover_chrome (pad);
 }
 
 static void
 xpad_pad_notify_has_toolbar (XpadPad *pad)
 {
-	gboolean has_toolbar, autohide_toolbar;
-	g_object_get (pad->priv->settings, "has-toolbar", &has_toolbar, "autohide-toolbar", &autohide_toolbar, NULL);
-
-	if (has_toolbar && !autohide_toolbar)
-		xpad_pad_show_toolbar (pad);
-	else
-		xpad_pad_hide_toolbar (pad);
+	xpad_pad_sync_hover_chrome (pad);
 }
 
 static void
@@ -699,11 +756,11 @@ xpad_pad_notify_autohide_toolbar (XpadPad *pad)
 	}
 	else
 	{
-		gboolean has_toolbar;
-		g_object_get (pad->priv->settings, "has-toolbar", &has_toolbar, NULL);
-
-		if (has_toolbar)
-			xpad_pad_show_toolbar(pad);
+		if (pad->priv->toolbar_timeout) {
+			g_source_remove (pad->priv->toolbar_timeout);
+			pad->priv->toolbar_timeout = 0;
+		}
+		xpad_pad_sync_hover_chrome (pad);
 	}
 }
 
@@ -734,19 +791,27 @@ xpad_pad_notify_has_scrollbar (XpadPad *pad)
 
 /* The toolbar and grip float over the text as overlay children, so revealing
    them is a pure animation — none of the GTK 3 era window-resize bookkeeping
-   applies anymore. */
+   applies anymore. Keep the corner resize grip decoupled from has-toolbar on
+   undecorated pads so hiding the toolbar never removes mouse resizing. */
 static void
-xpad_pad_show_toolbar (XpadPad *pad)
+xpad_pad_sync_hover_chrome (XpadPad *pad)
 {
-	gtk_revealer_set_reveal_child (GTK_REVEALER (pad->priv->toolbar_revealer), TRUE);
-	gtk_revealer_set_reveal_child (GTK_REVEALER (pad->priv->grip_revealer), TRUE);
-}
+	gboolean has_toolbar, autohide_toolbar, decorations;
+	g_object_get (pad->priv->settings,
+		"has-toolbar", &has_toolbar,
+		"autohide-toolbar", &autohide_toolbar,
+		"has-decorations", &decorations,
+		NULL);
 
-static void
-xpad_pad_hide_toolbar (XpadPad *pad)
-{
-	gtk_revealer_set_reveal_child (GTK_REVEALER (pad->priv->toolbar_revealer), FALSE);
-	gtk_revealer_set_reveal_child (GTK_REVEALER (pad->priv->grip_revealer), FALSE);
+	gboolean active = pad->priv->hovered || pad->priv->menus_open > 0;
+	gboolean show_toolbar = has_toolbar && (!autohide_toolbar || active);
+	gboolean show_grip = (!decorations && (active || (has_toolbar && !autohide_toolbar))) ||
+	                     (decorations && show_toolbar);
+
+	if (pad->priv->toolbar_revealer)
+		gtk_revealer_set_reveal_child (GTK_REVEALER (pad->priv->toolbar_revealer), show_toolbar);
+	if (pad->priv->grip_revealer)
+		gtk_revealer_set_reveal_child (GTK_REVEALER (pad->priv->grip_revealer), show_grip);
 }
 
 void
@@ -820,20 +885,13 @@ xpad_pad_enter (GtkEventControllerMotion *controller, gdouble x, gdouble y, gpoi
 	   the pointer arriving over it is the natural moment to force a repaint. */
 	xpad_pad_force_redraw (pad);
 
-	gboolean has_toolbar, autohide_toolbar;
-	g_object_get (pad->priv->settings, "has-toolbar", &has_toolbar, "autohide-toolbar", &autohide_toolbar, NULL);
-
-	if (has_toolbar && autohide_toolbar)
-	{
-		/* Cancel a pending hide-countdown: remove the real GSource, not just the
-		   tracking id, so dispose's guard stays accurate and a deleted pad can't
-		   leave an armed timer firing on freed memory. */
-		if (pad->priv->toolbar_timeout) {
-			g_source_remove (pad->priv->toolbar_timeout);
-			pad->priv->toolbar_timeout = 0;
-		}
-		xpad_pad_show_toolbar (pad);
+	if (pad->priv->toolbar_timeout) {
+		g_source_remove (pad->priv->toolbar_timeout);
+		pad->priv->toolbar_timeout = 0;
 	}
+
+	pad->priv->hovered = TRUE;
+	xpad_pad_sync_hover_chrome (pad);
 }
 
 /* --- Render self-heal -------------------------------------------------------
@@ -885,13 +943,10 @@ xpad_pad_leave (GtkEventControllerMotion *controller, gpointer data)
 	/* Persist geometry when the pointer leaves (configure-event is gone). */
 	xpad_pad_size_changed (pad);
 
-	gboolean has_toolbar, autohide_toolbar;
-	g_object_get (pad->priv->settings, "has-toolbar", &has_toolbar, "autohide-toolbar", &autohide_toolbar, NULL);
-
 	/* Crossing into an open popover's surface (color picker, context menu)
 	   also registers as leaving the pad — don't start the hide countdown
 	   while a menu is up; menu_popdown rearms it when the menu closes. */
-	if (has_toolbar && autohide_toolbar && !pad->priv->menus_open)
+	if (!pad->priv->menus_open && xpad_pad_chrome_autohides (pad))
 	{
 		if (!pad->priv->toolbar_timeout)
 			pad->priv->toolbar_timeout = g_timeout_add (1000, (GSourceFunc) toolbar_timeout, pad);
@@ -921,24 +976,28 @@ xpad_pad_clear (XpadPad *pad)
 void
 xpad_pad_close (XpadPad *pad)
 {
-	gtk_widget_hide (GTK_WIDGET (pad));
+	xpad_pad_size_changed (pad);
 
 	/*
-	 * If no tray and this is the last pad, we don't want to record this
-	 * pad as closed, we want to start with just this pad next open.  So
-	 * quit before we record.
+	 * If no tray and this is the last visible pad, quit before hiding so
+	 * shutdown persists it as visible (with its latest size/content) rather
+	 * than recording it hidden.
 	 */
 	if (!xpad_tray_has_indicator () &&
-		 xpad_pad_group_num_visible_pads (pad->priv->group) == 0)
+	    gtk_widget_get_visible (GTK_WIDGET (pad)) &&
+	    xpad_pad_group_num_visible_pads (pad->priv->group) <= 1)
 	{
 		xpad_app_quit ();
 		return;
 	}
 
+	gtk_widget_hide (GTK_WIDGET (pad));
+
 	if (pad->priv->properties)
 		gtk_window_destroy (GTK_WINDOW (pad->priv->properties));
 
-	xpad_pad_save_info_delayed (pad);
+	pad->priv->unsaved_info = TRUE;
+	xpad_pad_save_info (pad);
 
 	g_signal_emit (pad, signals[CLOSED], 0);
 }
@@ -1263,8 +1322,12 @@ xpad_pad_size_changed (XpadPad *pad)
 	if (!gtk_widget_get_visible (GTK_WIDGET (pad)))
 		return;
 
-	int w = gtk_widget_get_width (GTK_WIDGET (pad));
-	int h = gtk_widget_get_height (GTK_WIDGET (pad));
+	int w = 0, h = 0;
+	gtk_window_get_default_size (GTK_WINDOW (pad), &w, &h);
+	if (w <= 0)
+		w = gtk_widget_get_width (GTK_WIDGET (pad));
+	if (h <= 0)
+		h = gtk_widget_get_height (GTK_WIDGET (pad));
 
 	if (w > 0 && h > 0 && (pad->priv->width != (guint) w || pad->priv->height != (guint) h)) {
 		pad->priv->width = (guint) w;
@@ -1306,20 +1369,21 @@ xpad_pad_toggle_edit_lock (XpadPad *pad)
  * text-view drag and the resize grip — all three used to hand-roll the same
  * _NET_WM_MOVERESIZE client message, which only ever worked on X11/XWayland.
  * GDK does it for us on whichever backend is live. */
-void
-xpad_pad_begin_window_drag (GtkWidget *widget, GtkGestureClick *gesture, gboolean move)
+static gboolean
+xpad_pad_surface_press_point (GtkWidget *widget, GtkGestureClick *gesture,
+                              GdkSurface **out_surface, double *out_x, double *out_y)
 {
 	GtkRoot *root = gtk_widget_get_root (widget);
 	if (!GTK_IS_WINDOW (root))
-		return;
+		return FALSE;
 
 	GdkSurface *surface = gtk_native_get_surface (GTK_NATIVE (root));
 	if (!GDK_IS_TOPLEVEL (surface))
-		return;
+		return FALSE;
 
 	double x, y;
 	if (!gtk_gesture_get_point (GTK_GESTURE (gesture), NULL, &x, &y))
-		return;
+		return FALSE;
 
 	/* GDK wants the press point in surface coordinates; the gesture reports it
 	   relative to its own widget, and the widget tree can sit at an offset
@@ -1335,31 +1399,195 @@ xpad_pad_begin_window_drag (GtkWidget *widget, GtkGestureClick *gesture, gboolea
 	graphene_point_t point;
 	if (!gtk_widget_compute_point (widget, GTK_WIDGET (root),
 	                               &GRAPHENE_POINT_INIT ((float) x, (float) y), &point))
-		return;
+		return FALSE;
 
 	double dx = 0.0, dy = 0.0;
 	gtk_native_get_surface_transform (GTK_NATIVE (root), &dx, &dy);
+
+	*out_surface = surface;
+	*out_x = point.x + dx;
+	*out_y = point.y + dy;
+	return TRUE;
+}
+
+void
+xpad_pad_begin_window_resize (GtkWidget *widget, GtkGestureClick *gesture, GdkSurfaceEdge edge)
+{
+	GdkSurface *surface = NULL;
+	double sx = 0.0, sy = 0.0;
+	if (!xpad_pad_surface_press_point (widget, gesture, &surface, &sx, &sy))
+		return;
 
 	GdkDevice *device = gtk_gesture_get_device (GTK_GESTURE (gesture));
 	int button = (int) gtk_gesture_single_get_current_button (GTK_GESTURE_SINGLE (gesture));
 	guint32 time = gtk_event_controller_get_current_event_time (GTK_EVENT_CONTROLLER (gesture));
 
-	if (move)
-		gdk_toplevel_begin_move (GDK_TOPLEVEL (surface), device, button,
-		                         point.x + dx, point.y + dy, time);
-	else
-		gdk_toplevel_begin_resize (GDK_TOPLEVEL (surface),
-		                           gtk_widget_get_direction (widget) == GTK_TEXT_DIR_RTL
-		                             ? GDK_SURFACE_EDGE_SOUTH_WEST
-		                             : GDK_SURFACE_EDGE_SOUTH_EAST,
-		                           device, button, point.x + dx, point.y + dy, time);
+	gdk_toplevel_begin_resize (GDK_TOPLEVEL (surface), edge, device, button, sx, sy, time);
 
 	/* The WM owns the drag now and consumes the button-release, so GTK never
 	   sees it. Drop the gesture's implicit grab immediately or the pad freezes
-	   to all input waiting for a release that never comes (the v1.4.3 bug).
-	   GtkWindowHandle resets its own gesture after begin_move for the same
-	   reason, so this stays even though the Xlib grab handling is gone. */
+	   to all input waiting for a release that never comes (the v1.4.3 bug). */
 	gtk_event_controller_reset (GTK_EVENT_CONTROLLER (gesture));
+}
+
+void
+xpad_pad_begin_window_drag (GtkWidget *widget, GtkGestureClick *gesture, gboolean move)
+{
+	if (!move) {
+		GdkSurfaceEdge edge = gtk_widget_get_direction (widget) == GTK_TEXT_DIR_RTL
+		                        ? GDK_SURFACE_EDGE_SOUTH_WEST
+		                        : GDK_SURFACE_EDGE_SOUTH_EAST;
+		xpad_pad_begin_window_resize (widget, gesture, edge);
+		return;
+	}
+
+	GdkSurface *surface = NULL;
+	double sx = 0.0, sy = 0.0;
+	if (!xpad_pad_surface_press_point (widget, gesture, &surface, &sx, &sy))
+		return;
+
+	GdkDevice *device = gtk_gesture_get_device (GTK_GESTURE (gesture));
+	int button = (int) gtk_gesture_single_get_current_button (GTK_GESTURE_SINGLE (gesture));
+	guint32 time = gtk_event_controller_get_current_event_time (GTK_EVENT_CONTROLLER (gesture));
+
+	gdk_toplevel_begin_move (GDK_TOPLEVEL (surface), device, button, sx, sy, time);
+	gtk_event_controller_reset (GTK_EVENT_CONTROLLER (gesture));
+}
+
+enum {
+	XPAD_HANDLE_TOP = 0,
+	XPAD_HANDLE_BOTTOM,
+	XPAD_HANDLE_START,
+	XPAD_HANDLE_END,
+	XPAD_HANDLE_TOP_START,
+	XPAD_HANDLE_TOP_END,
+	XPAD_HANDLE_BOTTOM_START,
+	XPAD_HANDLE_BOTTOM_END
+};
+
+static GdkSurfaceEdge
+xpad_pad_handle_edge (GtkWidget *pad, int pos)
+{
+	gboolean rtl = gtk_widget_get_direction (pad) == GTK_TEXT_DIR_RTL;
+	switch (pos) {
+	case XPAD_HANDLE_TOP:          return GDK_SURFACE_EDGE_NORTH;
+	case XPAD_HANDLE_BOTTOM:       return GDK_SURFACE_EDGE_SOUTH;
+	case XPAD_HANDLE_START:        return rtl ? GDK_SURFACE_EDGE_EAST : GDK_SURFACE_EDGE_WEST;
+	case XPAD_HANDLE_END:          return rtl ? GDK_SURFACE_EDGE_WEST : GDK_SURFACE_EDGE_EAST;
+	case XPAD_HANDLE_TOP_START:    return rtl ? GDK_SURFACE_EDGE_NORTH_EAST : GDK_SURFACE_EDGE_NORTH_WEST;
+	case XPAD_HANDLE_TOP_END:      return rtl ? GDK_SURFACE_EDGE_NORTH_WEST : GDK_SURFACE_EDGE_NORTH_EAST;
+	case XPAD_HANDLE_BOTTOM_START: return rtl ? GDK_SURFACE_EDGE_SOUTH_EAST : GDK_SURFACE_EDGE_SOUTH_WEST;
+	case XPAD_HANDLE_BOTTOM_END:
+	default:                       return rtl ? GDK_SURFACE_EDGE_SOUTH_WEST : GDK_SURFACE_EDGE_SOUTH_EAST;
+	}
+}
+
+static const gchar *
+xpad_pad_edge_cursor_name (GdkSurfaceEdge edge)
+{
+	switch (edge) {
+	case GDK_SURFACE_EDGE_NORTH:      return "n-resize";
+	case GDK_SURFACE_EDGE_SOUTH:      return "s-resize";
+	case GDK_SURFACE_EDGE_WEST:       return "w-resize";
+	case GDK_SURFACE_EDGE_EAST:       return "e-resize";
+	case GDK_SURFACE_EDGE_NORTH_WEST: return "nw-resize";
+	case GDK_SURFACE_EDGE_NORTH_EAST: return "ne-resize";
+	case GDK_SURFACE_EDGE_SOUTH_WEST: return "sw-resize";
+	case GDK_SURFACE_EDGE_SOUTH_EAST:
+	default:                          return "se-resize";
+	}
+}
+
+static void
+xpad_pad_resize_handle_pressed (GtkGestureClick *gesture, gint n_press, gdouble x, gdouble y, gpointer data)
+{
+	(void) n_press; (void) x; (void) y;
+	XpadPad *pad = XPAD_PAD (data);
+	GdkModifierType state = gtk_event_controller_get_current_event_state (GTK_EVENT_CONTROLLER (gesture));
+
+	/* Keep Ctrl+left-drag moving the pad even when initiated near an edge. */
+	if (state & GDK_CONTROL_MASK)
+		return;
+
+	GtkWidget *handle = gtk_event_controller_get_widget (GTK_EVENT_CONTROLLER (gesture));
+	int pos = GPOINTER_TO_INT (g_object_get_data (G_OBJECT (handle), "xpad-handle-pos"));
+	gtk_gesture_set_state (GTK_GESTURE (gesture), GTK_EVENT_SEQUENCE_CLAIMED);
+	xpad_pad_begin_window_resize (handle, gesture, xpad_pad_handle_edge (GTK_WIDGET (pad), pos));
+}
+
+static void
+xpad_pad_setup_resize_handles (XpadPad *pad)
+{
+	static const struct {
+		int pos;
+		GtkAlign halign;
+		GtkAlign valign;
+		int w;
+		int h;
+		int m_start;
+		int m_end;
+		int m_top;
+		int m_bottom;
+	} specs[8] = {
+		{ XPAD_HANDLE_TOP,          GTK_ALIGN_FILL,  GTK_ALIGN_START, -1,  5, 12, 12,  0,  0 },
+		{ XPAD_HANDLE_BOTTOM,       GTK_ALIGN_FILL,  GTK_ALIGN_END,   -1,  5, 12, 12,  0,  0 },
+		{ XPAD_HANDLE_START,        GTK_ALIGN_START, GTK_ALIGN_FILL,   5, -1,  0,  0, 12, 12 },
+		{ XPAD_HANDLE_END,          GTK_ALIGN_END,   GTK_ALIGN_FILL,   5, -1,  0,  0, 12, 12 },
+		{ XPAD_HANDLE_TOP_START,    GTK_ALIGN_START, GTK_ALIGN_START, 12, 12,  0,  0,  0,  0 },
+		{ XPAD_HANDLE_TOP_END,      GTK_ALIGN_END,   GTK_ALIGN_START, 12, 12,  0,  0,  0,  0 },
+		{ XPAD_HANDLE_BOTTOM_START, GTK_ALIGN_START, GTK_ALIGN_END,   12, 12,  0,  0,  0,  0 },
+		{ XPAD_HANDLE_BOTTOM_END,   GTK_ALIGN_END,   GTK_ALIGN_END,   12, 12,  0,  0,  0,  0 }
+	};
+
+	for (int i = 0; i < 8; i++) {
+		GtkWidget *h = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 0);
+		gtk_widget_set_size_request (h, specs[i].w, specs[i].h);
+		gtk_widget_set_halign (h, specs[i].halign);
+		gtk_widget_set_valign (h, specs[i].valign);
+		gtk_widget_set_margin_start (h, specs[i].m_start);
+		gtk_widget_set_margin_end (h, specs[i].m_end);
+		gtk_widget_set_margin_top (h, specs[i].m_top);
+		gtk_widget_set_margin_bottom (h, specs[i].m_bottom);
+		gtk_widget_set_cursor_from_name (h, xpad_pad_edge_cursor_name (xpad_pad_handle_edge (GTK_WIDGET (pad), specs[i].pos)));
+		g_object_set_data (G_OBJECT (h), "xpad-handle-pos", GINT_TO_POINTER (specs[i].pos));
+
+		GtkGesture *click = gtk_gesture_click_new ();
+		gtk_gesture_single_set_button (GTK_GESTURE_SINGLE (click), GDK_BUTTON_PRIMARY);
+		g_signal_connect (click, "pressed", G_CALLBACK (xpad_pad_resize_handle_pressed), pad);
+		gtk_widget_add_controller (h, GTK_EVENT_CONTROLLER (click));
+
+		gtk_overlay_add_overlay (pad->priv->text_with_search_overlay, h);
+		gtk_overlay_set_clip_overlay (pad->priv->text_with_search_overlay, h, TRUE);
+		pad->priv->resize_handles[i] = h;
+	}
+}
+
+static void
+xpad_pad_update_resize_handles (XpadPad *pad, gboolean decorations)
+{
+	gboolean enable = !decorations;
+	for (int i = 0; i < 8; i++) {
+		if (pad->priv->resize_handles[i]) {
+			gtk_widget_set_visible (pad->priv->resize_handles[i], enable);
+			gtk_widget_set_can_target (pad->priv->resize_handles[i], enable);
+		}
+	}
+}
+
+static void
+xpad_pad_ctrl_primary_pressed (GtkGestureClick *gesture, gint n_press, gdouble x, gdouble y, gpointer data)
+{
+	(void) n_press; (void) x; (void) y;
+	XpadPad *pad = XPAD_PAD (data);
+	GdkModifierType state = gtk_event_controller_get_current_event_state (GTK_EVENT_CONTROLLER (gesture));
+
+	if ((state & GDK_CONTROL_MASK) == 0) {
+		gtk_gesture_set_state (GTK_GESTURE (gesture), GTK_EVENT_SEQUENCE_DENIED);
+		return;
+	}
+
+	gtk_gesture_set_state (GTK_GESTURE (gesture), GTK_EVENT_SEQUENCE_CLAIMED);
+	xpad_pad_begin_window_drag (GTK_WIDGET (pad), gesture, (state & GDK_ALT_MASK) == 0);
 }
 
 /* GTK 4 routes button presses through GtkGestureClick (button == 0 → any). */
@@ -1379,22 +1607,15 @@ xpad_pad_pressed (GtkGestureClick *gesture, gint n_press, gdouble x, gdouble y, 
 	}
 	else if (button == GDK_BUTTON_SECONDARY)
 	{
-		if (ctrl)
-		{
-			gtk_gesture_set_state (GTK_GESTURE (gesture), GTK_EVENT_SEQUENCE_CLAIMED);
-			xpad_pad_begin_window_drag (GTK_WIDGET (pad), gesture, FALSE);
-		}
-		else
-		{
+		gtk_gesture_set_state (GTK_GESTURE (gesture), GTK_EVENT_SEQUENCE_CLAIMED);
+		if (!ctrl)
 			xpad_pad_popup (pad, x, y);
-			gtk_gesture_set_state (GTK_GESTURE (gesture), GTK_EVENT_SEQUENCE_CLAIMED);
-		}
 	}
 }
 
 /* Secondary-button press on the text view (capture phase): show the pad menu
-   where GtkTextView would otherwise pop its built-in one. Ctrl+right-click
-   keeps the interactive-resize behaviour of xpad_pad_pressed. */
+   where GtkTextView would otherwise pop its built-in one. Do not call gdk_toplevel_begin_resize() on button 3, which wedges Mutter
+   in an active resize grab on Wayland. */
 static void
 xpad_pad_text_secondary_pressed (GtkGestureClick *gesture, gint n_press, gdouble x, gdouble y, gpointer data)
 {
@@ -1406,10 +1627,7 @@ xpad_pad_text_secondary_pressed (GtkGestureClick *gesture, gint n_press, gdouble
 	gtk_gesture_set_state (GTK_GESTURE (gesture), GTK_EVENT_SEQUENCE_CLAIMED);
 
 	if (state & GDK_CONTROL_MASK)
-	{
-		xpad_pad_begin_window_drag (textview, gesture, FALSE);
 		return;
-	}
 
 	/* The popover is parented to the pad window; translate the press point. */
 	graphene_point_t p = GRAPHENE_POINT_INIT ((float) x, (float) y);
@@ -1554,6 +1772,7 @@ xpad_pad_load_info (XpadPad *pad, gboolean *show)
 		return;
 
 	pad->priv->unsaved_info = FALSE;
+	pad->priv->saved_hidden = hidden;
 
 	g_object_get (pad->priv->settings, "has-toolbar", &has_toolbar, "autohide-toolbar", &autohide_toolbar, NULL);
 
@@ -1672,8 +1891,10 @@ xpad_pad_save_info (XpadPad *pad)
 		"s|text", text_color_string,
 		"s|fontname", font_string,
 		"s|content", pad->priv->contentname,
-		(gchar *) NULL) == 0)
+		(gchar *) NULL) == 0) {
 		pad->priv->unsaved_info = FALSE;
+		pad->priv->saved_hidden = !gtk_widget_get_visible (GTK_WIDGET (pad));
+	}
 
 	g_free (text_color_string);
 	g_free (back_color_string);
@@ -2058,10 +2279,20 @@ menu_popdown (XpadPad *pad)
 	if (pad->priv->menus_open > 0)
 		pad->priv->menus_open--;
 
-	/* Restart the autohide timeout once the last menu is gone; the enter
-	   controller cancels it again if the pointer is still over the pad. */
-	if (!pad->priv->menus_open && !pad->priv->toolbar_timeout)
+	if (pad->priv->menus_open)
+		return;
+
+	/* Only arm the autohide timer if the pointer actually left the pad while
+	   the menu was open; otherwise enter does not re-fire and the hover
+	   chrome would vanish under the cursor a second later. */
+	gboolean contains = pad->priv->motion &&
+	    gtk_event_controller_motion_contains_pointer (GTK_EVENT_CONTROLLER_MOTION (pad->priv->motion));
+	if (contains) {
+		pad->priv->hovered = TRUE;
+		xpad_pad_sync_hover_chrome (pad);
+	} else if (!pad->priv->toolbar_timeout && xpad_pad_chrome_autohides (pad)) {
 		pad->priv->toolbar_timeout = g_timeout_add (1000, (GSourceFunc) toolbar_timeout, pad);
+	}
 }
 
 static void
@@ -2109,6 +2340,7 @@ void xpad_pad_save_info_delayed (XpadPad *pad)
 /* Save pad without delay, for example on application shutdown. */
 void xpad_pad_save_unsaved (XpadPad *pad)
 {
+	xpad_pad_size_changed (pad);
 	if (pad->priv->unsaved_content)
 		xpad_pad_save_content (pad);
 	if (pad->priv->unsaved_info)

@@ -64,6 +64,9 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="3.3.4" date="2026-11-24">
+      <description><p>Fix note resizing, hover toolbar and grip handling, per-note font round-tripping, size persistence on quit, synchronous note metadata creation, socket cleanup, and headless CLI startup.</p></description>
+    </release>
     <release version="3.3.3" date="2026-10-29">
       <description><p>Fix the tray menu fading in row by row after editing a note: menu row IDs are stable across rebuilds so changed labels update in place.</p></description>
     </release>

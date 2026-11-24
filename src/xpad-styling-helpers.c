@@ -20,6 +20,7 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 
 #include "../config.h"
 
+#include <string.h>
 #include <gtk/gtk.h>
 
 void get_background_color (GtkStyleContext *context, GtkStateFlags state, GdkRGBA *color);
@@ -160,7 +161,19 @@ gchar * pango_font_description_to_css (PangoFontDescription *desc) {
 		}
 
 		if (set & PANGO_FONT_MASK_SIZE) {
-			g_string_append_printf (s, "font-size: %dpt;", pango_font_description_get_size (desc) / PANGO_SCALE);
+			gchar size_buf[G_ASCII_DTOSTR_BUF_SIZE];
+			double size = (double) pango_font_description_get_size (desc) / (double) PANGO_SCALE;
+			const gchar *unit = pango_font_description_get_size_is_absolute (desc) ? "px" : "pt";
+			g_ascii_formatd (size_buf, sizeof (size_buf), "%.3f", size);
+			gchar *dot = strchr (size_buf, '.');
+			if (dot) {
+				gchar *end = size_buf + strlen (size_buf) - 1;
+				while (end > dot && *end == '0')
+					*end-- = '\0';
+				if (end == dot)
+					*end = '\0';
+			}
+			g_string_append_printf (s, "font-size: %s%s;", size_buf, unit);
 		}
 	}
 

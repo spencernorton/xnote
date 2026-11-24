@@ -28,9 +28,9 @@ AM_CFLAGS = \
 	-I$(top_srcdir)/src \
 	-I$(top_builddir)
 
-check_PROGRAMS = test-escape test-fio test-settings test-autostart test-tray-lifecycle
+check_PROGRAMS = test-escape test-fio test-settings test-autostart test-tray-lifecycle test-styling
 
-TESTS = test-escape test-fio test-settings test-autostart test-tray-lifecycle
+TESTS = test-escape test-fio test-settings test-autostart test-tray-lifecycle test-styling
 
 # test-escape: compile only xpad-text-buffer.c (escape helpers) + GLib.
 test_escape_SOURCES = test-escape.c ../src/xpad-text-buffer.c
@@ -68,3 +68,9 @@ test_tray_lifecycle_SOURCES = test-tray-lifecycle.c \
 	../src/constants.c
 test_tray_lifecycle_CFLAGS  = $(AM_CFLAGS) -DDATADIR=\"/tmp\"
 test_tray_lifecycle_LDADD   = @GTK_LIBS@
+
+# test-styling: verifies pango_font_description_to_css() px vs pt handling.
+test_styling_SOURCES = test-styling.c \
+	../src/xpad-styling-helpers.c
+test_styling_CFLAGS  = $(AM_CFLAGS)
+test_styling_LDADD   = @GTK_LIBS@

@@ -141,7 +141,11 @@ for _ in $(seq 1 60); do   # the save is debounced; it is not on disk immediatel
 	sleep 0.25
 done
 [ -n "$CONTENT" ] || fail "--new-from-file did not persist a note to disk"
-ok "created and persisted a note ($(basename "$CONTENT"))"
+CONTENT_BASE="$(basename "$CONTENT")"
+INFO_FILE="$(grep -l "content ${CONTENT_BASE}" "$XDG_CONFIG_HOME"/xnote/info-* 2>/dev/null | head -1)"
+[ -n "$INFO_FILE" ] || fail "--new-from-file did not write matching info-* file"
+grep -q "^hidden 0$" "$INFO_FILE" || fail "--new-from-file info file did not record hidden 0"
+ok "created and persisted a note ($CONTENT_BASE / $(basename "$INFO_FILE"), hidden 0)"
 
 "$XNOTE" --show || fail "--show returned non-zero"
 kill -0 "$XNOTE_PID" 2>/dev/null || fail "--show killed the running instance"
@@ -152,7 +156,8 @@ wait_gone "$XNOTE_PID" || { kill -9 "$XNOTE_PID" 2>/dev/null; fail "xnote did no
 wait "$XNOTE_PID" 2>/dev/null
 RC=$?
 [ "$RC" -eq 0 ] || fail "xnote exited with rc=$RC after --quit"
-ok "clean exit after --quit"
+[ ! -e "$SOCKET" ] || fail "clean --quit left stale server socket behind at $SOCKET"
+ok "clean exit after --quit (server socket removed)"
 
 # --- phase 2: the no-tray reachability contract ---------------------------
 # With no tray, closing the last visible pad must terminate the process rather
@@ -169,5 +174,16 @@ wait "$XNOTE_PID" 2>/dev/null
 RC=$?
 [ "$RC" -eq 0 ] || fail "xnote exited with rc=$RC after --hide"
 ok "--hide with no tray exits cleanly instead of going unreachable"
+
+# --- phase 3: headless CLI invocation emits no GLib CRITICAL/WARNING ------
+HEADLESS_ERR="$WORK/headless.err"
+env -u DISPLAY -u WAYLAND_DISPLAY XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" \
+	XDG_CONFIG_HOME="$WORK/headless-cfg" "$XNOTE" >"$WORK/headless.out" 2>"$HEADLESS_ERR" \
+	|| fail "headless xnote invocation returned non-zero"
+if grep -qE "CRITICAL|WARNING \*\*|assertion .* failed" "$HEADLESS_ERR"; then
+	cat "$HEADLESS_ERR" >&2
+	fail "headless xnote logged a GLib CRITICAL/WARNING"
+fi
+ok "headless CLI invocation exits cleanly without GLib CRITICAL/WARNING"
 
 echo "wayland-smoke: PASS"
